@@ -4,15 +4,10 @@ A multi-line status bar for [Claude Code](https://code.claude.com) that tracks s
 
 ## What It Looks Like
 
+**Subscription users** (Pro/Max) see rate limit usage with reset countdown:
 ```
 [Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | 5h: 23% 7d: 41%
-```
-
-**Subscription users** see rate limit usage:
-```
-[Opus] 📁 counter | 🌿 main | Session: 00h 45m 12s (API: 05m 30s)
-██░░░░░░░░ 18% ctx | #2 | Today: 02h 10m | Week: 08h 45m | 5h: 15% 7d: 32%
+████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | Limit (5hr): 68% used, resets in 1h 51m | Limit (7day): 4% used
 ```
 
 **API users** see daily cost instead:
@@ -21,29 +16,55 @@ A multi-line status bar for [Claude Code](https://code.claude.com) that tracks s
 ███████░░░ 75% ctx | #1 | Today: 00h 30m | Week: 02h 15m | Cost: $2.47
 ```
 
+**Heavy context usage** triggers a warning:
+```
+[Opus] 📁 big-project | 🌿 main | Session: 02h 10m 00s (API: 25m 00s)
+█████████░ 92% ctx !! >200k | #2 | Today: 03h 00m | Week: 15h 00m | Limit (5hr): 65% used, resets in 1h 45m | Limit (7day): 80% used
+```
+
 ## What Each Field Means
+
+### Line 1 — Session Info
 
 | Field | Description |
 |---|---|
-| `[Model]` | Current Claude model (Opus, Sonnet, etc.) |
-| 📁 `dir` | Current working directory name |
-| 🌿 `branch` | Git branch (cached per-repo, refreshes every 5s) |
-| `Session: XXh XXm XXs` | Wall-clock time since this Claude Code session started |
-| `(API: XXm XXs)` | Time Claude spent actively processing requests |
-| `██░░ XX% ctx` | Context window usage with color coding |
-| `#N` | Number of unique sessions tracked today |
-| `Today: XXh XXm` | Sum of all sessions today (resets at midnight) |
-| `Week: XXh XXm` | Rolling 7-day total across all sessions |
-| `5h: XX%` / `7d: XX%` | Rate limit usage (Pro/Max subscription plans) |
-| `Cost: $X.XX` | Daily cost total (API users only) |
+| `[Opus]` | Current Claude model name |
+| 📁 `my-project` | Current working directory |
+| 🌿 `main` | Git branch (cached per-repo, refreshes every 5s) |
+| `Session: 01h 23m 45s` | Wall-clock time since this Claude Code session started. Includes idle time. |
+| `(API: 12m 34s)` | Time Claude spent actively thinking/responding. This is your real "active usage." |
 
-### Context Bar Colors
+### Line 2 — Usage & Limits
 
-| Color | Range | Meaning |
+| Field | Description |
+|---|---|
+| `████░░░░░░ 42% ctx` | Context window usage. Green (<70%), yellow (70-89%), red (90%+). |
+| `!! >200k` | Warning when total tokens exceed 200k (only shown when triggered). |
+| `#3` | Number of unique Claude Code sessions tracked today. |
+| `Today: 04h 56m` | Sum of all sessions today across all terminals/windows. Resets at midnight. |
+| `Week: 12h 34m` | Rolling 7-day total across all sessions. |
+| `Limit (5hr): 68% used` | How much of your 5-hour rolling rate limit you've consumed (subscription only). |
+| `resets in 1h 51m` | Time until the 5-hour window resets and your allowance recovers. |
+| `Limit (7day): 4% used` | How much of your 7-day rolling rate limit you've consumed (subscription only). |
+| `Cost: $2.47` | Daily cost total — shown for API users instead of rate limits. |
+
+### Understanding Rate Limits (Subscription Users)
+
+- **Limit (5hr)** is your short-term budget. This is what throttles you during heavy use. When it approaches 100%, Claude will rate-limit you until the window rolls forward. Watch this number day-to-day.
+- **Limit (7day)** is your weekly budget. At low percentages you have plenty of room. This matters for sustained heavy usage across multiple days.
+- **resets in Xh Xm** tells you exactly when the 5-hour window opens up again, so you can plan breaks or switch to a lighter model.
+
+### Understanding Time Metrics
+
+- **Session time** = wall-clock time (includes idle, lunch breaks, leaving it open overnight)
+- **API time** = only time Claude was actively processing your requests
+- **Today/Week** = wall-clock totals aggregated across all sessions
+
+| Scenario | Session time | API time |
 |---|---|---|
-| Green | 0-69% | Plenty of context remaining |
-| Yellow | 70-89% | Getting full |
-| Red | 90-100% | Nearly exhausted |
+| Active coding for 1 hour | ~1h | ~15-30m |
+| Open but idle for 2 hours | ~2h | ~0m |
+| Overnight (left open 8 hours) | ~8h | Same as last update |
 
 ## Prerequisites
 
@@ -103,7 +124,9 @@ Claude Code pipes JSON session data to the status line command via stdin after e
 | `cost.total_cost_usd` | Session cost in USD (cumulative) |
 | `session_id` | Unique identifier per Claude Code process |
 | `context_window.used_percentage` | Context window usage (0-100) |
+| `exceeds_200k_tokens` | Whether tokens exceed 200k (fixed threshold) |
 | `rate_limits.five_hour.used_percentage` | 5-hour rate limit (subscription only) |
+| `rate_limits.five_hour.resets_at` | Unix epoch when 5-hour window resets |
 | `rate_limits.seven_day.used_percentage` | 7-day rate limit (subscription only) |
 
 ### Aggregation
@@ -129,31 +152,28 @@ Each session's `total_duration_ms` is cumulative (it grows over the session's li
 - **Git branch** is cached per-repo with a 5-second TTL to avoid lag in large repositories
 - **Daily file cleanup** runs once per day, removing files older than 30 days
 - **Atomic writes** use `mktemp` to avoid race conditions between concurrent sessions
+- Uses `printf '%b'` for reliable escape sequence handling across shells
 
-## Important: What "Time" Means
+### Known Limitations
 
-`Session`, `Today`, and `Week` measure **wall-clock time** — how long sessions have been open, including idle time. If you leave Claude Code open during lunch, that time counts.
-
-The `(API: Xm Xs)` metric measures **active processing time** — only the time Claude spent thinking and responding to your requests. This is closer to "actual usage."
-
-| Scenario | Session time | API time |
-|---|---|---|
-| Active coding for 1 hour | ~1h | ~15-30m (depends on request frequency) |
-| Open but idle for 2 hours | ~2h | ~0m |
-| Overnight (left open 8 hours) | ~8h | Same as last update |
+- Wall-clock, not active time (idle sessions inflate totals; use API time for real usage)
+- Overnight sessions: full duration stored under the day the script last ran
+- Value updates only after assistant messages; closing mid-prompt loses ~1 update
+- Git branch cached per-repo with 5s TTL (briefly stale after switching)
+- `disableAllHooks` in settings.json also disables the status line
 
 ## Testing
 
 Test the script with mock JSON without starting a real session:
 
 ```bash
-echo '{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/Users/you/project"},"context_window":{"used_percentage":25},"session_id":"test","cost":{"total_duration_ms":3600000,"total_api_duration_ms":300000,"total_cost_usd":0},"rate_limits":{"five_hour":{"used_percentage":10},"seven_day":{"used_percentage":5}},"version":"1.0.80"}' | bash ~/.claude/ultimate-timer.sh
+echo '{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/Users/you/project"},"context_window":{"used_percentage":25},"exceeds_200k_tokens":false,"session_id":"test","cost":{"total_duration_ms":3600000,"total_api_duration_ms":300000,"total_cost_usd":0},"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":'$(($(date +%s) + 7200))'},"seven_day":{"used_percentage":5}},"version":"1.0.80"}' | bash ~/.claude/ultimate-timer.sh
 ```
 
 Expected output:
 ```
 [Opus] 📁 project | Session: 01h 00m 00s (API: 05m 00s)
-██░░░░░░░░ 25% ctx | #1 | Today: 01h 00m | Week: 01h 00m | 5h: 10% 7d: 5%
+██░░░░░░░░ 25% ctx | #1 | Today: 01h 00m | Week: 01h 00m | Limit (5hr): 10% used, resets in 2h 0m | Limit (7day): 5% used
 ```
 
 ## Maintenance
@@ -173,11 +193,15 @@ Old daily files (30+ days) are automatically deleted.
 | Issue | Fix |
 |---|---|
 | No status line visible | Check `~/.claude/settings.json` has the `statusLine` config, restart Claude Code |
+| "statusline skipped" message | Accept the workspace trust dialog, then restart Claude Code |
+| Blank status line | Script may have errored. Test with mock JSON above. Run `claude --debug` for details. |
 | Shows `--` or empty values | Normal before first API response; values populate after first message |
 | `jq: command not found` | Install jq: `brew install jq` (macOS) or `apt install jq` (Linux) |
 | `Permission denied` | Run `chmod +x ~/.claude/ultimate-timer.sh` |
-| Git branch wrong/stale | Cache refreshes every 5s; wait or `rm /tmp/statusline-git-cache-*` |
+| `disableAllHooks` is true | That also disables status line. Set to `false` or remove it. |
+| Git branch wrong/stale | Cache refreshes every 5s per-repo. Clear with `rm /tmp/statusline-git-cache-*` |
 | Today/Week values seem high | Wall-clock time includes idle; check `(API: Xm Xs)` for active usage |
+| Narrow terminal truncation | System notifications share the status row and may clip your output |
 
 ## Reference
 

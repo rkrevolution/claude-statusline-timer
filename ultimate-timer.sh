@@ -8,7 +8,7 @@
 #
 # DISPLAY FORMAT (2 lines):
 #   [Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | 5h: 23% resets 2h | 7d: 41%
+#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | Limit (5hr): 23% used, resets in 2h 15m | Limit (7day): 41% used
 #
 # WHAT EACH FIELD MEANS:
 #   [Model]              — Current Claude model (Opus, Sonnet, etc.)
@@ -21,8 +21,8 @@
 #   #N                   — Number of unique sessions tracked today
 #   Today: XXh XXm       — Daily total across ALL sessions (resets at midnight)
 #   Week: XXh XXm        — Rolling 7-day total across all sessions
-#   5h: XX% resets Xh    — 5-hour rate limit usage + time until reset (subscription)
-#   7d: XX%              — 7-day rate limit usage (subscription users: Pro/Max)
+#   Limit (5hr): XX% used, resets in Xh Xm — 5-hour rolling rate limit (subscription)
+#   Limit (7day): XX% used                — 7-day rolling rate limit (subscription)
 #   Cost: $X.XX          — Daily cost (API users, shown when no rate limits)
 #
 # IMPORTANT — WHAT "TIME" MEANS:
@@ -249,7 +249,7 @@ BILLING=""
 if [ -n "$FIVE_H" ] || [ -n "$SEVEN_D" ]; then
   # Subscription: show rate limit percentages with reset countdown
   if [ -n "$FIVE_H" ]; then
-    BILLING="5h: $(printf '%.0f' "$FIVE_H")%"
+    BILLING="Limit (5hr): $(printf '%.0f' "$FIVE_H")% used"
     # Add "resets in Xh Xm" if resets_at is available
     if [ -n "$FIVE_H_RESETS" ]; then
       now=$(date +%s)
@@ -258,14 +258,14 @@ if [ -n "$FIVE_H" ] || [ -n "$SEVEN_D" ]; then
         rh=$(( remaining / 3600 ))
         rm_val=$(( (remaining % 3600) / 60 ))
         if [ "$rh" -gt 0 ]; then
-          BILLING="${BILLING} resets ${rh}h${rm_val}m"
+          BILLING="${BILLING}, resets in ${rh}h ${rm_val}m"
         else
-          BILLING="${BILLING} resets ${rm_val}m"
+          BILLING="${BILLING}, resets in ${rm_val}m"
         fi
       fi
     fi
   fi
-  [ -n "$SEVEN_D" ] && BILLING="${BILLING:+$BILLING | }7d: $(printf '%.0f' "$SEVEN_D")%"
+  [ -n "$SEVEN_D" ] && BILLING="${BILLING:+$BILLING | }Limit (7day): $(printf '%.0f' "$SEVEN_D")% used"
 else
   # API: show daily cost
   cost_fmt=$(printf '%.2f' "${daily_cost:-0}" 2>/dev/null || echo "0.00")
@@ -307,7 +307,7 @@ fi
 #
 # EXPECTED OUTPUT (subscription user):
 #   [Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | 5h: 23% resets 3h12m | 7d: 41%
+#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | Limit (5hr): 23% used, resets in 3h 12m | Limit (7day): 41% used
 #
 # EXPECTED OUTPUT (API user):
 #   [Sonnet] 📁 my-project | 🌿 main | Session: 00h 30m 00s (API: 08m 15s)
@@ -319,7 +319,7 @@ fi
 #
 # EXPECTED OUTPUT (huge context, subscription):
 #   [Opus] 📁 my-project | 🌿 main | Session: 02h 10m 00s (API: 25m 00s)
-#   █████████░ 92% ctx !! >200k | #2 | Today: 03h 00m | Week: 15h 00m | 5h: 65% resets 1h45m | 7d: 80%
+#   █████████░ 92% ctx !! >200k | #2 | Today: 03h 00m | Week: 15h 00m | Limit (5hr): 65% used, resets in 1h 45m | Limit (7day): 80% used
 
 printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Session: $(printf '%02dh %02dm %02ds' "$sh" "$sm" "$ss") (API: $(printf '%02dm %02ds' "$am" "$as"))"
 printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Week: $(printf '%02dh %02dm' "$wh" "$wm") | ${YELLOW}${BILLING}${RESET}"
