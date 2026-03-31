@@ -409,49 +409,57 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 12. OUTPUT (multi-line)
+# 12. OUTPUT (3 lines)
 # -----------------------------------------------------------------------------
-# Line 1: Model, directory, git branch, session timer, active API time
-# Line 2: Context bar, 3 daily time metrics, session count, weekly total, billing
+# Line 1: THIS SESSION — model, directory, branch, session elapsed + API time
+# Line 2: ALL SESSIONS — context bar, session count, daily metrics, weekly total
+# Line 3: BILLING — rate limits (subscription) or cost (API)
 #
-# THREE TIME DIMENSIONS:
-#   Today (merged):  Real time at desk — overlapping sessions deduplicated
-#   Today (wall):    Naive sum of all session durations — for comparison
-#   Today (active):  API processing time — Claude actually working
+# Three time dimensions on line 2:
+#   Today:  Real time at desk — overlapping sessions merged (most accurate)
+#   Wall:   Naive sum of all session durations (sanity check; if Wall > Today,
+#           overlapping sessions were deduplicated)
+#   Active: Sum of API processing time across all sessions (Claude working time)
 #
-# If merged == wall-clock, you had no overlapping sessions.
-# If wall-clock > merged, the merge is doing its job.
+# Uses printf '%b' instead of echo -e for reliable escape handling (per docs).
 #
-# Uses printf '%b' instead of echo -e for more reliable escape sequence
-# handling across different shells (official docs recommendation).
+# EXPECTED OUTPUT (subscription, 2 overlapping sessions):
+#   [Opus] 📁 my-project | 🌿 main | This Session: 01h 23m 45s (API: 12m 34s)
+#   ████░░░░░░ 42% ctx | All Sessions: 2 today | Today: 02h 00m | Wall: 03h 00m | Active: 25m | Week: 12h 34m
+#   Limit (5hr): 68% used, resets in 1h 51m | Limit (7day): 12% used, resets in 5d 18h
 #
-# EXPECTED OUTPUT (subscription user, 2 overlapping sessions):
-#   [Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-#   ████░░░░░░ 42% ctx | #2 | Today: 02h 00m | Wall: 03h 00m | Active: 25m | Week: 12h 34m | Limit (5hr): 68% used, resets in 1h 51m | Limit (7day): 4% used
-#
-# EXPECTED OUTPUT (no overlap — Today and Wall match):
-#   [Opus] 📁 my-project | 🌿 main | Session: 00h 45m 00s (API: 10m 00s)
-#   ██░░░░░░░░ 18% ctx | #2 | Today: 01h 30m | Wall: 01h 30m | Active: 15m | Week: 08h 00m | Limit (5hr): 30% used, resets in 3h 0m | Limit (7day): 8% used
+# EXPECTED OUTPUT (fresh session, subscriber):
+#   [Opus] 📁 my-project | This Session: awaiting first message...
+#   ░░░░░░░░░░ 0% ctx | All Sessions: 2 today | Today: 01h 30m | Wall: 01h 30m | Active: 15m | Week: 08h 00m
+#   Limits: loading...
 #
 # EXPECTED OUTPUT (API user):
-#   [Sonnet] 📁 my-project | Session: 00h 30m 00s (API: 08m 15s)
-#   ███████░░░ 75% ctx | #1 | Today: 00h 30m | Wall: 00h 30m | Active: 8m | Week: 02h 15m | Cost: $2.47
+#   [Sonnet] 📁 my-project | This Session: 00h 30m 00s (API: 08m 15s)
+#   ███████░░░ 75% ctx | All Sessions: 1 today | Today: 00h 30m | Wall: 00h 30m | Active: 8m | Week: 02h 15m
+#   Cost: $2.47
 
-# Detect if this is a fresh session with no real data yet.
-# total_api_duration_ms = 0 and total_duration_ms <= 2s means Claude
-# just started and hasn't processed anything — show a hint.
+# --- Line 1: This Session ---
+# Shows current session's elapsed time and API processing time.
+# Before first message: total_duration_ms <= 2s and total_api_duration_ms = 0
+# means Claude hasn't processed anything yet — show a waiting indicator.
 if [ "$session_ms" -le 2000 ] && [ "$api_ms" -eq 0 ]; then
-  # Fresh session — flag session data as pending
-  printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Awaiting first message..."
+  printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | This Session: awaiting first message..."
 else
-  # Line 1: Model, directory, git branch, session timer
-  printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Session: $(printf '%02dh %02dm %02ds' "$sh" "$sm" "$ss") (API: $(printf '%02dm %02ds' "$am" "$as"))"
+  printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | This Session: $(printf '%02dh %02dm %02ds' "$sh" "$sm" "$ss") (API: $(printf '%02dm %02ds' "$am" "$as"))"
 fi
 
-# Line 2: Context bar + daily time metrics
-printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Wall: $(printf '%02dh %02dm' "$wall_h" "$wall_m") | Active: ${ACTIVE_FMT} | Week: $(printf '%02dh %02dm' "$wh" "$wm")"
+# --- Line 2: All Sessions ---
+# Aggregated across all Claude Code sessions today (and rolling 7-day week).
+# "Today" uses merged intervals — concurrent sessions don't inflate the number.
+# "Wall" is the naive sum — compare with Today to verify merge is working.
+# "Active" is sum of API time — how long Claude was actually thinking.
+printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | All Sessions: ${session_count} today | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Wall: $(printf '%02dh %02dm' "$wall_h" "$wall_m") | Active: ${ACTIVE_FMT} | Week: $(printf '%02dh %02dm' "$wh" "$wm")"
 
-# Line 3: Billing info (rate limits or cost)
+# --- Line 3: Billing ---
+# Subscription users: rate limit percentages + reset countdown.
+# API users: daily cost total.
+# First load of the day (before first API response): "Limits: loading..." for
+# known subscribers, or Cost for unknown/API users.
 printf '%b\n' "${YELLOW}${BILLING}${RESET}"
 
 # Always exit 0 — non-zero exit causes the status line to go blank (per docs)
