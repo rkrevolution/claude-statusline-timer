@@ -8,7 +8,7 @@
 #
 # DISPLAY FORMAT (2 lines):
 #   [Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | Limit (5hr): 23% used, resets in 2h 15m | Limit (7day): 41% used
+#   ████░░░░░░ 42% ctx | #3 | Today: 02h 45m (active: 25m) | Week: 12h 34m | Limit (5hr): 68% used, resets in 1h 51m | Limit (7day): 4% used
 #
 # WHAT EACH FIELD MEANS:
 #   [Model]              — Current Claude model (Opus, Sonnet, etc.)
@@ -19,32 +19,41 @@
 #   ██░░ XX% ctx         — Context window usage (green <70%, yellow 70-89%, red 90%+)
 #                          Adds "!! >200k" warning when exceeds_200k_tokens is true
 #   #N                   — Number of unique sessions tracked today
-#   Today: XXh XXm       — Daily total across ALL sessions (resets at midnight)
-#   Week: XXh XXm        — Rolling 7-day total across all sessions
+#   Today: XXh XXm       — Real time at desk with Claude (merged intervals,
+#                          no double-counting overlapping sessions)
+#   Wall: XXh XXm        — Naive sum of all session durations (for comparison;
+#                          if Wall > Today, overlapping sessions were deduplicated)
+#   Active: XXm          — Sum of API processing time (Claude actually working)
+#   Week: XXh XXm        — Rolling 7-day total (merged intervals)
 #   Limit (5hr): XX% used, resets in Xh Xm — 5-hour rolling rate limit (subscription)
 #   Limit (7day): XX% used                — 7-day rolling rate limit (subscription)
 #   Cost: $X.XX          — Daily cost (API users, shown when no rate limits)
 #
-# IMPORTANT — WHAT "TIME" MEANS:
-#   Session/Today/Week use total_duration_ms = wall-clock time since session
-#   start. This includes idle time (lunch breaks, overnight). It does NOT
-#   measure active coding time. The (API: Xm Xs) metric shows actual time
-#   Claude spent processing requests — closer to "active usage."
+# HOW TIME TRACKING WORKS:
+#   Each time this script runs (after every assistant message), we record:
+#   - "start": the first time we saw this session_id (set once, never changes)
+#   - "end": the current time (updated every run)
+#   - "api_ms": Claude's cumulative API processing time
 #
-# HOW AGGREGATION WORKS:
-#   Claude sends total_duration_ms which is cumulative per session. Each time
-#   this script runs, it OVERWRITES (not adds) the value for the current
-#   session_id in a daily JSON file. Summing all entries gives the true total.
+#   "Today" is computed by merging overlapping [start, end] intervals across
+#   all sessions so concurrent windows don't inflate the number. This gives
+#   you the actual time you were sitting with Claude open and active.
 #
-#   Daily files: ~/.claude/timer-daily-YYYY-MM-DD.json
-#   Format: {"session_id_1": {"ms": 45000, "api_ms": 2300, "cost": 0.12}, ...}
+#   Because "end" only updates when Claude responds, idle time at the end
+#   of a session naturally gets trimmed — making the number even more honest.
+#
+# DAILY FILE FORMAT:
+#   ~/.claude/timer-daily-YYYY-MM-DD.json
+#   {
+#     "session_id_1": {"start": 1711926000, "end": 1711933200, "api_ms": 900000, "cost": 1.25},
+#     "session_id_2": {"start": 1711929600, "end": 1711936800, "api_ms": 600000, "cost": 0.80}
+#   }
 #
 #   Files older than 30 days are auto-cleaned on each run.
 #
 # KNOWN LIMITATIONS:
-#   - Wall-clock, not active time (idle sessions inflate totals)
-#   - Overnight sessions: full duration stored under the day the script last ran
-#   - Value updates only after assistant messages; closing mid-prompt loses ~1 update
+#   - "end" only updates on assistant messages; idle tail time is trimmed (a feature)
+#   - Overnight sessions: interval spans midnight, counted under whichever day "start" is in
 #   - Git branch cached per-repo with 5s TTL (briefly stale after switching)
 #   - disableAllHooks in settings.json also disables the status line
 #
@@ -58,10 +67,9 @@
 # TROUBLESHOOTING:
 #   - No status line? Check chmod +x, check settings.json, restart Claude Code
 #   - "statusline skipped"? Accept workspace trust dialog, then restart
-#   - Blank status line? Script may have errored — test with mock JSON (see below)
+#   - Blank status line? Script may have errored — test with mock JSON (see README)
 #   - disableAllHooks is true? That also disables status line — set to false
 #   - Debug: run `claude --debug` to see exit code and stderr from first invocation
-#   - Test: echo '{"model":{"display_name":"Opus"},...}' | bash ~/.claude/ultimate-timer.sh
 #
 # MAINTENANCE:
 #   Reset today:    rm ~/.claude/timer-daily-$(date +%Y-%m-%d).json
@@ -109,27 +117,37 @@ am=$(( api_s / 60 ))
 as=$(( api_s % 60 ))
 
 # -----------------------------------------------------------------------------
-# 4. DAILY AGGREGATION
+# 4. DAILY AGGREGATION (merged intervals)
 # -----------------------------------------------------------------------------
-# Store the LATEST cumulative value per session_id (not additive).
-# Since total_duration_ms grows over the session's lifetime, we overwrite
-# each session's entry. Summing all entries = true daily total.
+# For each session_id we store:
+#   - "start": Unix epoch when we first saw this session (set once)
+#   - "end":   Unix epoch of the most recent update (now)
+#   - "api_ms": Claude's cumulative API processing time
+#   - "cost":   Claude's cumulative cost
+#
+# "Today" total is computed by merging overlapping [start, end] intervals
+# across all sessions, so concurrent windows don't double-count.
 #
 # Atomic write: mktemp creates a unique temp file per invocation, avoiding
 # race conditions when multiple sessions update simultaneously.
 
+now=$(date +%s)
 today=$(date +%Y-%m-%d)
 daily_file="$HOME/.claude/timer-daily-$today.json"
 
 if [ -n "$session_id" ] && [ "$session_ms" != "0" ]; then
   if [ -f "$daily_file" ]; then
-    # Overwrite this session's entry with latest cumulative values
+    # Update this session: preserve "start" if it exists, always update "end"
     tmpfile=$(mktemp /tmp/claude-timer.XXXXXX)
     if jq --arg sid "$session_id" \
-         --argjson ms "$session_ms" \
+         --argjson now "$now" \
          --argjson api "$api_ms" \
          --argjson cost "$session_cost" \
-         '.[$sid] = {"ms": $ms, "api_ms": $api, "cost": $cost}' \
+         'if .[$sid] then
+            .[$sid].end = $now | .[$sid].api_ms = $api | .[$sid].cost = $cost
+          else
+            .[$sid] = {"start": $now, "end": $now, "api_ms": $api, "cost": $cost}
+          end' \
          "$daily_file" > "$tmpfile" 2>/dev/null; then
       mv "$tmpfile" "$daily_file"
     else
@@ -137,40 +155,97 @@ if [ -n "$session_id" ] && [ "$session_ms" != "0" ]; then
     fi
   else
     # First session of the day — create the file
-    echo "{\"$session_id\":{\"ms\":$session_ms,\"api_ms\":$api_ms,\"cost\":$session_cost}}" > "$daily_file"
+    echo "{\"$session_id\":{\"start\":$now,\"end\":$now,\"api_ms\":$api_ms,\"cost\":$session_cost}}" > "$daily_file"
   fi
 fi
 
-# Sum all sessions for today's totals
+# -----------------------------------------------------------------------------
+# 4b. MERGE OVERLAPPING INTERVALS (for accurate daily total)
+# -----------------------------------------------------------------------------
+# Algorithm: sort intervals by start, then walk through merging overlaps.
+# This is done entirely in jq:
+#   1. Collect all [start, end] pairs
+#   2. Sort by start
+#   3. Merge: if next.start <= current.end, extend current.end
+#   4. Sum all merged interval durations
+#
+# Also sum api_ms and cost (these don't need merging — they're independent).
+
 if [ -f "$daily_file" ]; then
-  daily_ms=$(jq '[.[].ms] | add // 0' "$daily_file" 2>/dev/null || echo 0)
-  daily_cost=$(jq '[.[].cost] | add // 0' "$daily_file" 2>/dev/null || echo 0)
+  read -r daily_merged daily_wall daily_api daily_cost < <(jq -r '
+    # Collect intervals and totals
+    [to_entries[] | .value] as $sessions |
+
+    # Wall-clock: naive sum of each session duration (for comparison)
+    ([$sessions[] | .end - .start] | add // 0) as $wall |
+
+    # Sort intervals by start time
+    [$sessions | sort_by(.start)[] | {start: .start, end: .end}] as $sorted |
+
+    # Merge overlapping intervals
+    ($sorted | reduce .[] as $iv (
+      [];
+      if length == 0 then [$iv]
+      elif (last.end >= $iv.start) then (.[:-1] + [{start: last.start, end: ([last.end, $iv.end] | max)}])
+      else . + [$iv]
+      end
+    )) as $merged |
+
+    # Sum merged interval durations (seconds)
+    ([$merged[] | .end - .start] | add // 0) as $merged_total |
+
+    # Output: merged_seconds wall_seconds api_ms_total cost_total
+    "\($merged_total) \($wall) \([$sessions[].api_ms] | add // 0) \([$sessions[].cost] | add // 0)"
+  ' "$daily_file" 2>/dev/null || echo "0 0 0 0")
 else
-  daily_ms=0
+  daily_merged=0
+  daily_wall=0
+  daily_api=0
   daily_cost=0
 fi
 
-daily_s=$(( ${daily_ms:-0} / 1000 ))
+# Merged time (real time at desk, no overlap)
+daily_s=${daily_merged:-0}
 dh=$(( daily_s / 3600 ))
 dm=$(( (daily_s % 3600) / 60 ))
 
-# -----------------------------------------------------------------------------
-# 5. WEEKLY AGGREGATION (rolling 7 days)
-# -----------------------------------------------------------------------------
-# Reads daily files for the past 7 days and sums them.
-# Uses macOS `date -v` with GNU/Linux `date -d` fallback.
+# Wall-clock time (naive sum of all sessions, for comparison)
+wall_s=${daily_wall:-0}
+wall_h=$(( wall_s / 3600 ))
+wall_m=$(( (wall_s % 3600) / 60 ))
 
-week_ms=0
+# Active time (sum of API processing across all sessions)
+daily_api_s=$(( ${daily_api:-0} / 1000 ))
+dah=$(( daily_api_s / 3600 ))
+dam=$(( daily_api_s % 3600 / 60 ))
+
+# -----------------------------------------------------------------------------
+# 5. WEEKLY AGGREGATION (rolling 7 days, merged intervals)
+# -----------------------------------------------------------------------------
+# Reads daily files for the past 7 days. Each day's file already contains
+# intervals, so we sum each day's merged total.
+
+week_s=0
 for i in {0..6}; do
   wdate=$(date -v-${i}d +%Y-%m-%d 2>/dev/null || date -d "-$i days" +%Y-%m-%d 2>/dev/null)
   wfile="$HOME/.claude/timer-daily-${wdate}.json"
   if [ -f "$wfile" ]; then
-    w=$(jq '[.[].ms] | add // 0' "$wfile" 2>/dev/null || echo 0)
-    week_ms=$(( week_ms + ${w:-0} ))
+    w=$(jq '
+      [to_entries[] | .value] |
+      [sort_by(.start)[] | {start: .start, end: .end}] |
+      reduce .[] as $iv (
+        [];
+        if length == 0 then [$iv]
+        elif (last.end >= $iv.start) then (.[:-1] + [{start: last.start, end: ([last.end, $iv.end] | max)}])
+        else . + [$iv]
+        end
+      ) |
+      [.[] | .end - .start] | add // 0
+    ' "$wfile" 2>/dev/null || echo 0)
+    week_s=$(( week_s + ${w:-0} ))
   fi
 done
 
-week_s=$(( week_ms / 1000 ))
 wh=$(( week_s / 3600 ))
 wm=$(( (week_s % 3600) / 60 ))
 
@@ -252,7 +327,6 @@ if [ -n "$FIVE_H" ] || [ -n "$SEVEN_D" ]; then
     BILLING="Limit (5hr): $(printf '%.0f' "$FIVE_H")% used"
     # Add "resets in Xh Xm" if resets_at is available
     if [ -n "$FIVE_H_RESETS" ]; then
-      now=$(date +%s)
       remaining=$(( FIVE_H_RESETS - now ))
       if [ "$remaining" -gt 0 ]; then
         rh=$(( remaining / 3600 ))
@@ -297,32 +371,47 @@ if [ ! -f "$CLEANUP_MARKER" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 11. OUTPUT (multi-line)
+# 11. FORMAT COMPACT TIME STRINGS
+# -----------------------------------------------------------------------------
+# Active time shown compactly: "45m" or "1h 23m" depending on duration
+
+if [ "$dah" -gt 0 ]; then
+  ACTIVE_FMT="${dah}h ${dam}m"
+else
+  ACTIVE_FMT="${dam}m"
+fi
+
+# -----------------------------------------------------------------------------
+# 12. OUTPUT (multi-line)
 # -----------------------------------------------------------------------------
 # Line 1: Model, directory, git branch, session timer, active API time
-# Line 2: Context bar, session count, daily total, weekly total, billing info
+# Line 2: Context bar, 3 daily time metrics, session count, weekly total, billing
+#
+# THREE TIME DIMENSIONS:
+#   Today (merged):  Real time at desk — overlapping sessions deduplicated
+#   Today (wall):    Naive sum of all session durations — for comparison
+#   Today (active):  API processing time — Claude actually working
+#
+# If merged == wall-clock, you had no overlapping sessions.
+# If wall-clock > merged, the merge is doing its job.
 #
 # Uses printf '%b' instead of echo -e for more reliable escape sequence
 # handling across different shells (official docs recommendation).
 #
-# EXPECTED OUTPUT (subscription user):
+# EXPECTED OUTPUT (subscription user, 2 overlapping sessions):
 #   [Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | Limit (5hr): 23% used, resets in 3h 12m | Limit (7day): 41% used
+#   ████░░░░░░ 42% ctx | #2 | Today: 02h 00m | Wall: 03h 00m | Active: 25m | Week: 12h 34m | Limit (5hr): 68% used, resets in 1h 51m | Limit (7day): 4% used
+#
+# EXPECTED OUTPUT (no overlap — Today and Wall match):
+#   [Opus] 📁 my-project | 🌿 main | Session: 00h 45m 00s (API: 10m 00s)
+#   ██░░░░░░░░ 18% ctx | #2 | Today: 01h 30m | Wall: 01h 30m | Active: 15m | Week: 08h 00m | Limit (5hr): 30% used, resets in 3h 0m | Limit (7day): 8% used
 #
 # EXPECTED OUTPUT (API user):
-#   [Sonnet] 📁 my-project | 🌿 main | Session: 00h 30m 00s (API: 08m 15s)
-#   ███████░░░ 75% ctx | #1 | Today: 00h 30m | Week: 02h 15m | Cost: $2.47
-#
-# EXPECTED OUTPUT (early session, before first API response):
-#   [Opus] 📁 my-project | Session: 00h 00m 00s (API: 00m 00s)
-#   ░░░░░░░░░░ 0% ctx | #0 | Today: 00h 00m | Week: 00h 00m | Cost: $0.00
-#
-# EXPECTED OUTPUT (huge context, subscription):
-#   [Opus] 📁 my-project | 🌿 main | Session: 02h 10m 00s (API: 25m 00s)
-#   █████████░ 92% ctx !! >200k | #2 | Today: 03h 00m | Week: 15h 00m | Limit (5hr): 65% used, resets in 1h 45m | Limit (7day): 80% used
+#   [Sonnet] 📁 my-project | Session: 00h 30m 00s (API: 08m 15s)
+#   ███████░░░ 75% ctx | #1 | Today: 00h 30m | Wall: 00h 30m | Active: 8m | Week: 02h 15m | Cost: $2.47
 
 printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Session: $(printf '%02dh %02dm %02ds' "$sh" "$sm" "$ss") (API: $(printf '%02dm %02ds' "$am" "$as"))"
-printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Week: $(printf '%02dh %02dm' "$wh" "$wm") | ${YELLOW}${BILLING}${RESET}"
+printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Wall: $(printf '%02dh %02dm' "$wall_h" "$wall_m") | Active: ${ACTIVE_FMT} | Week: $(printf '%02dh %02dm' "$wh" "$wm") | ${YELLOW}${BILLING}${RESET}"
 
 # Always exit 0 — non-zero exit causes the status line to go blank (per docs)
 exit 0
