@@ -164,10 +164,17 @@ tw_m=$(( (week_total % 3600) / 60 ))
 echo "  Week total: ${tw_h}h ${tw_m}m"
 echo ""
 
-# --- 6. Live test ---
+# --- 6. Live test (mock data, debug logging paused) ---
 echo -e "${CYAN}[6] Live Test (mock data)${RESET}"
 NOW=$(date +%s)
+
+# Pause debug logging so mock data doesn't pollute the real log
+[ -f "$HOME/.claude/timer-debug" ] && mv "$HOME/.claude/timer-debug" "$HOME/.claude/timer-debug.paused" 2>/dev/null
+
 output=$(echo '{"model":{"display_name":"TestModel"},"workspace":{"current_dir":"/tmp/test"},"context_window":{"used_percentage":50},"exceeds_200k_tokens":false,"session_id":"diag-test","cost":{"total_duration_ms":60000,"total_api_duration_ms":5000,"total_cost_usd":0.5},"rate_limits":{"five_hour":{"used_percentage":25,"resets_at":'$((NOW+3600))'},"seven_day":{"used_percentage":10,"resets_at":'$((NOW+500000))'}},"version":"1.0.80"}' | bash ~/.claude/ultimate-timer.sh 2>&1)
+
+# Restore debug logging
+[ -f "$HOME/.claude/timer-debug.paused" ] && mv "$HOME/.claude/timer-debug.paused" "$HOME/.claude/timer-debug" 2>/dev/null
 
 if [ $? -eq 0 ] && [ -n "$output" ]; then
   echo -e "  ${GREEN}✓${RESET} Script ran successfully. Output:"
@@ -178,8 +185,76 @@ else
   echo "    Output: $output"
 fi
 
-# Clean up test entry
+# Clean up mock entry from daily file
 jq 'del(.["diag-test"])' "$daily_file" > /tmp/ct-diag.json 2>/dev/null && mv /tmp/ct-diag.json "$daily_file" 2>/dev/null
+
+# --- 7. Validate against actual Claude data (debug mode) ---
+echo -e "${CYAN}[7] Debug Log Validation${RESET}"
+debug_log="$HOME/.claude/timer-debug-log.jsonl"
+if [ -f "$HOME/.claude/timer-debug" ]; then
+  echo -e "  ${GREEN}✓${RESET} Debug mode is ON (logging raw Claude JSON)"
+  if [ -f "$debug_log" ]; then
+    line_count=$(wc -l < "$debug_log" | tr -d ' ')
+    echo "  Log: $debug_log ($line_count entries)"
+    echo ""
+    echo "  Last entry from Claude:"
+    last=$(tail -1 "$debug_log")
+    echo "$last" | jq '{
+      session_id: .session_id[0:12],
+      model: .model.display_name,
+      duration_ms: .cost.total_duration_ms,
+      api_ms: .cost.total_api_duration_ms,
+      cost_usd: .cost.total_cost_usd,
+      ctx_pct: .context_window.used_percentage,
+      has_rate_limits: (.rate_limits != null),
+      five_hour_pct: .rate_limits.five_hour.used_percentage,
+      seven_day_pct: .rate_limits.seven_day.used_percentage
+    }' 2>/dev/null | sed 's/^/    /'
+    echo ""
+
+    # Compare last Claude JSON vs what's stored in daily file
+    last_sid=$(echo "$last" | jq -r '.session_id // empty')
+    last_api=$(echo "$last" | jq -r '.cost.total_api_duration_ms // 0')
+    last_cost=$(echo "$last" | jq -r '.cost.total_cost_usd // 0')
+    if [ -n "$last_sid" ] && [ -f "$daily_file" ]; then
+      stored_api=$(jq -r --arg sid "$last_sid" '.[$sid].api_ms // "NOT FOUND"' "$daily_file" 2>/dev/null)
+      stored_cost=$(jq -r --arg sid "$last_sid" '.[$sid].cost // "NOT FOUND"' "$daily_file" 2>/dev/null)
+      stored_start=$(jq -r --arg sid "$last_sid" '.[$sid].start // "NOT FOUND"' "$daily_file" 2>/dev/null)
+      stored_end=$(jq -r --arg sid "$last_sid" '.[$sid].end // "NOT FOUND"' "$daily_file" 2>/dev/null)
+
+      echo "  Comparing Claude JSON vs stored data for ${last_sid:0:12}...:"
+      echo "    api_ms  — Claude: $last_api | Stored: $stored_api"
+      if [ "$last_api" = "$stored_api" ]; then
+        echo -e "             ${GREEN}✓ match${RESET}"
+      else
+        echo -e "             ${RED}✗ MISMATCH${RESET}"
+      fi
+
+      echo "    cost    — Claude: $last_cost | Stored: $stored_cost"
+      if [ "$last_cost" = "$stored_cost" ]; then
+        echo -e "             ${GREEN}✓ match${RESET}"
+      else
+        echo -e "             ${RED}✗ MISMATCH${RESET}"
+      fi
+
+      if [ "$stored_start" != "NOT FOUND" ] && [ "$stored_end" != "NOT FOUND" ]; then
+        echo "    start   — Stored: $stored_start ($(date -r "$stored_start" '+%H:%M:%S' 2>/dev/null || echo '?'))"
+        echo "    end     — Stored: $stored_end ($(date -r "$stored_end" '+%H:%M:%S' 2>/dev/null || echo '?'))"
+        echo "    span    — $(( stored_end - stored_start ))s"
+      else
+        echo -e "    ${RED}✗${RESET} Session not found in daily file (may have been cleaned up)"
+      fi
+    fi
+  else
+    echo -e "  ${YELLOW}—${RESET} No log entries yet. Send a message in Claude Code, then run this again."
+  fi
+else
+  echo -e "  ${YELLOW}—${RESET} Debug mode is OFF"
+  echo "  Enable:  touch ~/.claude/timer-debug"
+  echo "  Then send a message in Claude Code and re-run this test."
+  echo "  Disable: rm ~/.claude/timer-debug"
+  echo "  Clear log: rm ~/.claude/timer-debug-log.jsonl"
+fi
 
 echo ""
 echo "============================================"

@@ -87,6 +87,14 @@
 # Updates trigger after each assistant message, debounced at 300ms.
 input=$(cat)
 
+# Debug mode: log raw JSON from Claude to a file for diagnostic validation.
+# Enable by creating the marker file: touch ~/.claude/timer-debug
+# Logs are written to ~/.claude/timer-debug-log.jsonl (one JSON object per line).
+# Disable by removing: rm ~/.claude/timer-debug
+if [ -f "$HOME/.claude/timer-debug" ]; then
+  echo "$input" >> "$HOME/.claude/timer-debug-log.jsonl"
+fi
+
 # -----------------------------------------------------------------------------
 # 2. EXTRACT SESSION DATA
 # -----------------------------------------------------------------------------
