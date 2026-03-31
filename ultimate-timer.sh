@@ -29,18 +29,51 @@
 #   Limit (7day): XX% used                — 7-day rolling rate limit (subscription)
 #   Cost: $X.XX          — Daily cost (API users, shown when no rate limits)
 #
+# FIELD MAPPING (Claude JSON → Storage → Display):
+#
+#   Claude JSON → Daily File:
+#     session_id                 → JSON key         (unique per Claude process)
+#     cost.total_duration_ms     → start            (now - duration_ms/1000, backfilled real start)
+#     (current time)             → end              (updated to now every run)
+#     cost.total_api_duration_ms → api_ms           (cumulative, overwritten each update)
+#     cost.total_cost_usd        → cost             (cumulative, overwritten each update)
+#
+#   Daily File → Display (Line 2 — All Sessions):
+#     [start, end] intervals     → Today            (merged overlapping intervals)
+#     [start, end] intervals     → Wall             (naive sum, no merge — sanity check)
+#     api_ms across sessions     → Active           (sum of all api_ms / 1000)
+#     daily file key count       → All Sessions: N
+#     past 7 daily files         → Week             (sum of each day's merged intervals)
+#
+#   Claude JSON → Display directly (Line 1 — This Session):
+#     model.display_name         → [Model]
+#     workspace.current_dir      → 📁 dir           (basename only)
+#     cost.total_duration_ms     → This Session      (/ 1000 → h/m/s)
+#     cost.total_api_duration_ms → (API: XXm XXs)   (/ 1000 → m/s)
+#     context_window.used_pct    → XX% ctx           (direct, with color thresholds)
+#     exceeds_200k_tokens        → !! >200k          (shown when true)
+#
+#   Claude JSON → Display directly (Line 3 — Billing):
+#     rate_limits.five_hour.*    → Limit (5hr): XX% used, resets in Xh Xm
+#     rate_limits.seven_day.*    → Limit (7day): XX% used, resets in Xd Xh
+#     (sum of all sessions' cost)→ Cost: $X.XX       (API users only, when no rate_limits)
+#
+#   Not used: transcript_path, cwd, version, output_style,
+#     context_window.total_input/output_tokens, context_window_size,
+#     current_usage.*, remaining_percentage, cost.total_lines_added/removed
+#
 # HOW TIME TRACKING WORKS:
-#   Each time this script runs (after every assistant message), we record:
-#   - "start": the first time we saw this session_id (set once, never changes)
-#   - "end": the current time (updated every run)
-#   - "api_ms": Claude's cumulative API processing time
+#   "start" is backfilled using total_duration_ms: start = now - duration/1000.
+#   This captures the real session start even if the script first sees a session
+#   that's been running for a while. "end" is updated to now on every run.
 #
-#   "Today" is computed by merging overlapping [start, end] intervals across
-#   all sessions so concurrent windows don't inflate the number. This gives
-#   you the actual time you were sitting with Claude open and active.
+#   "Today" merges overlapping [start, end] intervals so concurrent sessions
+#   don't inflate the number. "Wall" is the naive sum for comparison.
+#   If Wall > Today, overlapping sessions were deduplicated.
 #
-#   Because "end" only updates when Claude responds, idle time at the end
-#   of a session naturally gets trimmed — making the number even more honest.
+#   "end" only updates when Claude responds, so trailing idle time is trimmed.
+#   Leading idle (opened Claude, walked away, then chatted) IS included since
+#   start reflects the real session start from total_duration_ms.
 #
 # DAILY FILE FORMAT:
 #   ~/.claude/timer-daily-YYYY-MM-DD.json
@@ -48,12 +81,11 @@
 #     "session_id_1": {"start": 1711926000, "end": 1711933200, "api_ms": 900000, "cost": 1.25},
 #     "session_id_2": {"start": 1711929600, "end": 1711936800, "api_ms": 600000, "cost": 0.80}
 #   }
-#
 #   Files older than 30 days are auto-cleaned on each run.
 #
 # KNOWN LIMITATIONS:
-#   - "end" only updates on assistant messages; idle tail time is trimmed (a feature)
-#   - Overnight sessions: interval spans midnight, counted under whichever day "start" is in
+#   - Leading idle included (start from total_duration_ms); trailing idle trimmed
+#   - Overnight sessions: interval spans midnight, stored under the day "start" falls in
 #   - Git branch cached per-repo with 5s TTL (briefly stale after switching)
 #   - disableAllHooks in settings.json also disables the status line
 #
