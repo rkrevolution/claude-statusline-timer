@@ -143,18 +143,23 @@ now=$(date +%s)
 today=$(date +%Y-%m-%d)
 daily_file="$HOME/.claude/timer-daily-$today.json"
 
+# Backfill start time using total_duration_ms so we capture the real session
+# start, even if the script first sees a session that's been running for a while.
+session_start=$(( now - session_ms / 1000 ))
+
 if [ -n "$session_id" ] && [ "$session_ms" != "0" ]; then
   if [ -f "$daily_file" ]; then
     # Update this session: preserve "start" if it exists, always update "end"
     tmpfile=$(mktemp /tmp/claude-timer.XXXXXX)
     if jq --arg sid "$session_id" \
          --argjson now "$now" \
+         --argjson start "$session_start" \
          --argjson api "$api_ms" \
          --argjson cost "$session_cost" \
          'if .[$sid] then
             .[$sid].end = $now | .[$sid].api_ms = $api | .[$sid].cost = $cost
           else
-            .[$sid] = {"start": $now, "end": $now, "api_ms": $api, "cost": $cost}
+            .[$sid] = {"start": $start, "end": $now, "api_ms": $api, "cost": $cost}
           end' \
          "$daily_file" > "$tmpfile" 2>/dev/null; then
       mv "$tmpfile" "$daily_file"
@@ -163,7 +168,7 @@ if [ -n "$session_id" ] && [ "$session_ms" != "0" ]; then
     fi
   else
     # First session of the day — create the file
-    echo "{\"$session_id\":{\"start\":$now,\"end\":$now,\"api_ms\":$api_ms,\"cost\":$session_cost}}" > "$daily_file"
+    echo "{\"$session_id\":{\"start\":$session_start,\"end\":$now,\"api_ms\":$api_ms,\"cost\":$session_cost}}" > "$daily_file"
   fi
 fi
 
