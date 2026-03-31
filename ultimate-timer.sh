@@ -437,8 +437,18 @@ fi
 #   [Sonnet] 📁 my-project | Session: 00h 30m 00s (API: 08m 15s)
 #   ███████░░░ 75% ctx | #1 | Today: 00h 30m | Wall: 00h 30m | Active: 8m | Week: 02h 15m | Cost: $2.47
 
-printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Session: $(printf '%02dh %02dm %02ds' "$sh" "$sm" "$ss") (API: $(printf '%02dm %02ds' "$am" "$as"))"
-printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Wall: $(printf '%02dh %02dm' "$wall_h" "$wall_m") | Active: ${ACTIVE_FMT} | Week: $(printf '%02dh %02dm' "$wh" "$wm") | ${YELLOW}${BILLING}${RESET}"
+# Detect if this is a fresh session with no real data yet.
+# total_api_duration_ms = 0 and total_duration_ms <= 2s means Claude
+# just started and hasn't processed anything — show a hint.
+if [ "$session_ms" -le 2000 ] && [ "$api_ms" -eq 0 ]; then
+  # Fresh session — show daily totals from file but flag session data as pending
+  printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Session data available after first message"
+  printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Wall: $(printf '%02dh %02dm' "$wall_h" "$wall_m") | Active: ${ACTIVE_FMT} | Week: $(printf '%02dh %02dm' "$wh" "$wm") | ${YELLOW}${BILLING}${RESET}"
+else
+  # Normal display with full session data
+  printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Session: $(printf '%02dh %02dm %02ds' "$sh" "$sm" "$ss") (API: $(printf '%02dm %02ds' "$am" "$as"))"
+  printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Wall: $(printf '%02dh %02dm' "$wall_h" "$wall_m") | Active: ${ACTIVE_FMT} | Week: $(printf '%02dh %02dm' "$wh" "$wm") | ${YELLOW}${BILLING}${RESET}"
+fi
 
 # Always exit 0 — non-zero exit causes the status line to go blank (per docs)
 exit 0
