@@ -8,7 +8,7 @@
 #
 # DISPLAY FORMAT (2 lines):
 #   [Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | 5h: 23% 7d: 41%
+#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | 5h: 23% resets 2h | 7d: 41%
 #
 # WHAT EACH FIELD MEANS:
 #   [Model]              — Current Claude model (Opus, Sonnet, etc.)
@@ -17,10 +17,12 @@
 #   Session: XXh XXm XXs — Wall-clock time since this Claude Code session started
 #   (API: XXm XXs)       — Active API time (Claude actually thinking/responding)
 #   ██░░ XX% ctx         — Context window usage (green <70%, yellow 70-89%, red 90%+)
+#                          Adds "!! >200k" warning when exceeds_200k_tokens is true
 #   #N                   — Number of unique sessions tracked today
 #   Today: XXh XXm       — Daily total across ALL sessions (resets at midnight)
 #   Week: XXh XXm        — Rolling 7-day total across all sessions
-#   5h: XX% / 7d: XX%    — Rate limit usage (subscription users: Pro/Max)
+#   5h: XX% resets Xh    — 5-hour rate limit usage + time until reset (subscription)
+#   7d: XX%              — 7-day rate limit usage (subscription users: Pro/Max)
 #   Cost: $X.XX          — Daily cost (API users, shown when no rate limits)
 #
 # IMPORTANT — WHAT "TIME" MEANS:
@@ -44,6 +46,7 @@
 #   - Overnight sessions: full duration stored under the day the script last ran
 #   - Value updates only after assistant messages; closing mid-prompt loses ~1 update
 #   - Git branch cached per-repo with 5s TTL (briefly stale after switching)
+#   - disableAllHooks in settings.json also disables the status line
 #
 # SETUP:
 #   1. Save to ~/.claude/ultimate-timer.sh
@@ -51,6 +54,14 @@
 #   3. Add to ~/.claude/settings.json:
 #      { "statusLine": {"type": "command", "command": "bash ~/.claude/ultimate-timer.sh"} }
 #   4. Requires: jq (brew install jq)
+#
+# TROUBLESHOOTING:
+#   - No status line? Check chmod +x, check settings.json, restart Claude Code
+#   - "statusline skipped"? Accept workspace trust dialog, then restart
+#   - Blank status line? Script may have errored — test with mock JSON (see below)
+#   - disableAllHooks is true? That also disables status line — set to false
+#   - Debug: run `claude --debug` to see exit code and stderr from first invocation
+#   - Test: echo '{"model":{"display_name":"Opus"},...}' | bash ~/.claude/ultimate-timer.sh
 #
 # MAINTENANCE:
 #   Reset today:    rm ~/.claude/timer-daily-$(date +%Y-%m-%d).json
@@ -77,6 +88,7 @@ input=$(cat)
 MODEL=$(echo "$input" | jq -r '.model.display_name')           # e.g. "Opus"
 DIR=$(echo "$input" | jq -r '.workspace.current_dir')          # e.g. "/Users/spark/project"
 PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)  # integer %
+EXCEEDS_200K=$(echo "$input" | jq -r '.exceeds_200k_tokens // false')              # bool
 session_id=$(echo "$input" | jq -r '.session_id // empty')     # unique per Claude process
 session_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')      # wall-clock ms (cumulative)
 api_ms=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')      # API-only ms (cumulative)
@@ -112,7 +124,7 @@ daily_file="$HOME/.claude/timer-daily-$today.json"
 if [ -n "$session_id" ] && [ "$session_ms" != "0" ]; then
   if [ -f "$daily_file" ]; then
     # Overwrite this session's entry with latest cumulative values
-    tmpfile=$(mktemp /tmp/claude-timer-XXXXXX.json)
+    tmpfile=$(mktemp /tmp/claude-timer.XXXXXX)
     if jq --arg sid "$session_id" \
          --argjson ms "$session_ms" \
          --argjson api "$api_ms" \
@@ -169,6 +181,9 @@ wm=$(( (week_s % 3600) / 60 ))
 #   Green  (<70%)  — plenty of room
 #   Yellow (70-89%) — getting full
 #   Red    (90%+)  — nearly exhausted
+#
+# exceeds_200k_tokens is a fixed threshold warning from Claude, regardless of
+# actual context window size. We append a warning when true.
 
 CYAN='\033[36m'; GREEN='\033[32m'; YELLOW='\033[33m'; RED='\033[31m'; RESET='\033[0m'
 
@@ -182,6 +197,10 @@ EMPTY=$(( BAR_WIDTH - FILLED ))
 BAR=""
 [ "$FILLED" -gt 0 ] && printf -v FILL "%${FILLED}s" && BAR="${FILL// /█}"
 [ "$EMPTY" -gt 0 ] && printf -v PAD "%${EMPTY}s" && BAR="${BAR}${PAD// /░}"
+
+# Append 200k warning if context is massive
+CTX_WARN=""
+[ "$EXCEEDS_200K" = "true" ] && CTX_WARN=" ${RED}!! >200k${RESET}"
 
 # -----------------------------------------------------------------------------
 # 7. GIT BRANCH (cached per-repo for performance)
@@ -217,16 +236,36 @@ BRANCH_STR=""
 # Subscription users (Pro/Max) get rate_limits after first API response.
 # API users get cost instead. We show whichever is available.
 # "// empty" produces no output when the field is absent (official pattern).
+#
+# For subscribers, also show time until 5-hour window resets using resets_at
+# (Unix epoch seconds). This helps plan usage around rate limit recovery.
 
 FIVE_H=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+FIVE_H_RESETS=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
 SEVEN_D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
 
 # Build the billing info string: rate limits for subscribers, cost for API users
 BILLING=""
 if [ -n "$FIVE_H" ] || [ -n "$SEVEN_D" ]; then
-  # Subscription: show rate limit percentages
-  [ -n "$FIVE_H" ] && BILLING="5h: $(printf '%.0f' "$FIVE_H")%"
-  [ -n "$SEVEN_D" ] && BILLING="${BILLING:+$BILLING }7d: $(printf '%.0f' "$SEVEN_D")%"
+  # Subscription: show rate limit percentages with reset countdown
+  if [ -n "$FIVE_H" ]; then
+    BILLING="5h: $(printf '%.0f' "$FIVE_H")%"
+    # Add "resets in Xh Xm" if resets_at is available
+    if [ -n "$FIVE_H_RESETS" ]; then
+      now=$(date +%s)
+      remaining=$(( FIVE_H_RESETS - now ))
+      if [ "$remaining" -gt 0 ]; then
+        rh=$(( remaining / 3600 ))
+        rm_val=$(( (remaining % 3600) / 60 ))
+        if [ "$rh" -gt 0 ]; then
+          BILLING="${BILLING} resets ${rh}h${rm_val}m"
+        else
+          BILLING="${BILLING} resets ${rm_val}m"
+        fi
+      fi
+    fi
+  fi
+  [ -n "$SEVEN_D" ] && BILLING="${BILLING:+$BILLING | }7d: $(printf '%.0f' "$SEVEN_D")%"
 else
   # API: show daily cost
   cost_fmt=$(printf '%.2f' "${daily_cost:-0}" 2>/dev/null || echo "0.00")
@@ -262,11 +301,13 @@ fi
 # -----------------------------------------------------------------------------
 # Line 1: Model, directory, git branch, session timer, active API time
 # Line 2: Context bar, session count, daily total, weekly total, billing info
-# Each echo produces a separate row in the status area.
+#
+# Uses printf '%b' instead of echo -e for more reliable escape sequence
+# handling across different shells (official docs recommendation).
 #
 # EXPECTED OUTPUT (subscription user):
 #   [Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | 5h: 23% 7d: 41%
+#   ████░░░░░░ 42% ctx | #3 | Today: 04h 56m | Week: 12h 34m | 5h: 23% resets 3h12m | 7d: 41%
 #
 # EXPECTED OUTPUT (API user):
 #   [Sonnet] 📁 my-project | 🌿 main | Session: 00h 30m 00s (API: 08m 15s)
@@ -275,6 +316,13 @@ fi
 # EXPECTED OUTPUT (early session, before first API response):
 #   [Opus] 📁 my-project | Session: 00h 00m 00s (API: 00m 00s)
 #   ░░░░░░░░░░ 0% ctx | #0 | Today: 00h 00m | Week: 00h 00m | Cost: $0.00
+#
+# EXPECTED OUTPUT (huge context, subscription):
+#   [Opus] 📁 my-project | 🌿 main | Session: 02h 10m 00s (API: 25m 00s)
+#   █████████░ 92% ctx !! >200k | #2 | Today: 03h 00m | Week: 15h 00m | 5h: 65% resets 1h45m | 7d: 80%
 
-echo -e "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Session: $(printf '%02dh %02dm %02ds' "$sh" "$sm" "$ss") (API: $(printf '%02dm %02ds' "$am" "$as"))"
-echo -e "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Week: $(printf '%02dh %02dm' "$wh" "$wm") | ${YELLOW}${BILLING}${RESET}"
+printf '%b\n' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${BRANCH_STR} | Session: $(printf '%02dh %02dm %02ds' "$sh" "$sm" "$ss") (API: $(printf '%02dm %02ds' "$am" "$as"))"
+printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | #${session_count} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Week: $(printf '%02dh %02dm' "$wh" "$wm") | ${YELLOW}${BILLING}${RESET}"
+
+# Always exit 0 — non-zero exit causes the status line to go blank (per docs)
+exit 0
