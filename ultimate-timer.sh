@@ -318,14 +318,26 @@ BRANCH_STR=""
 FIVE_H=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 FIVE_H_RESETS=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
 SEVEN_D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+SEVEN_D_RESETS=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
 
-# Build the billing info string: rate limits for subscribers, cost for API users
+# Remember if we've ever seen rate_limits in this day's data.
+# This prevents showing misleading Cost: on session start for subscribers.
+# rate_limits is absent before the first API response (per docs), so on
+# first load we don't know if user is subscriber or API. Once we see it
+# once, we save a marker so subsequent sessions know to wait for it.
+SUBSCRIBER_MARKER="$HOME/.claude/timer-subscriber-$today"
+
+if [ -n "$FIVE_H" ] || [ -n "$SEVEN_D" ]; then
+  # We have rate_limits — user is a subscriber. Save marker.
+  touch "$SUBSCRIBER_MARKER"
+fi
+
+# Build the billing info string
 BILLING=""
 if [ -n "$FIVE_H" ] || [ -n "$SEVEN_D" ]; then
-  # Subscription: show rate limit percentages with reset countdown
+  # Subscription: show rate limit percentages with reset countdowns
   if [ -n "$FIVE_H" ]; then
     BILLING="Limit (5hr): $(printf '%.0f' "$FIVE_H")% used"
-    # Add "resets in Xh Xm" if resets_at is available
     if [ -n "$FIVE_H_RESETS" ]; then
       remaining=$(( FIVE_H_RESETS - now ))
       if [ "$remaining" -gt 0 ]; then
@@ -339,9 +351,24 @@ if [ -n "$FIVE_H" ] || [ -n "$SEVEN_D" ]; then
       fi
     fi
   fi
-  [ -n "$SEVEN_D" ] && BILLING="${BILLING:+$BILLING | }Limit (7day): $(printf '%.0f' "$SEVEN_D")% used"
+  if [ -n "$SEVEN_D" ]; then
+    SEVEN_D_STR="Limit (7day): $(printf '%.0f' "$SEVEN_D")% used"
+    if [ -n "$SEVEN_D_RESETS" ]; then
+      remaining7=$(( SEVEN_D_RESETS - now ))
+      if [ "$remaining7" -gt 0 ]; then
+        r7d=$(( remaining7 / 86400 ))
+        r7h=$(( (remaining7 % 86400) / 3600 ))
+        SEVEN_D_STR="${SEVEN_D_STR}, resets in ${r7d}d ${r7h}h"
+      fi
+    fi
+    BILLING="${BILLING:+$BILLING | }${SEVEN_D_STR}"
+  fi
+elif [ -f "$SUBSCRIBER_MARKER" ]; then
+  # We've seen rate_limits before today — user is a subscriber but
+  # rate_limits hasn't loaded yet (before first API response).
+  BILLING="Limits: loading..."
 else
-  # API: show daily cost
+  # No rate_limits seen today and no marker — likely an API user.
   cost_fmt=$(printf '%.2f' "${daily_cost:-0}" 2>/dev/null || echo "0.00")
   BILLING="Cost: \$${cost_fmt}"
 fi
