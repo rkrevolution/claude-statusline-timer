@@ -217,7 +217,7 @@ fi
 # Also sum api_ms and cost (these don't need merging — they're independent).
 
 if [ -f "$daily_file" ]; then
-  read -r daily_merged daily_wall daily_api daily_cost < <(jq -r '
+  read -r daily_merged daily_wall daily_api daily_cost first_start < <(jq -r '
     # Collect intervals and totals
     [to_entries[] | .value] as $sessions |
 
@@ -239,14 +239,18 @@ if [ -f "$daily_file" ]; then
     # Sum merged interval durations (seconds)
     ([$merged[] | .end - .start] | add // 0) as $merged_total |
 
-    # Output: merged_seconds wall_seconds api_ms_total cost_total
-    "\($merged_total) \($wall) \([$sessions[].api_ms] | add // 0) \([$sessions[].cost] | add // 0)"
-  ' "$daily_file" 2>/dev/null || echo "0 0 0 0")
+    # Earliest session start (epoch seconds)
+    ([$sessions[].start] | min) as $first_start |
+
+    # Output: merged_seconds wall_seconds api_ms_total cost_total first_start
+    "\($merged_total) \($wall) \([$sessions[].api_ms] | add // 0) \([$sessions[].cost] | add // 0) \($first_start)"
+  ' "$daily_file" 2>/dev/null || echo "0 0 0 0 0")
 else
   daily_merged=0
   daily_wall=0
   daily_api=0
   daily_cost=0
+  first_start=0
 fi
 
 # Merged time (real time at desk, no overlap)
@@ -263,6 +267,16 @@ wall_m=$(( (wall_s % 3600) / 60 ))
 daily_api_s=$(( ${daily_api:-0} / 1000 ))
 dah=$(( daily_api_s / 3600 ))
 dam=$(( daily_api_s % 3600 / 60 ))
+
+# First session start time (formatted as local time, e.g. "10:53am")
+if [ "${first_start:-0}" -gt 0 ] 2>/dev/null; then
+  # date -r <epoch> is macOS, date -d @<epoch> is Linux
+  FIRST_TIME=$(date -r "$first_start" '+%-I:%M%p' 2>/dev/null || date -d "@$first_start" '+%-I:%M%p' 2>/dev/null || echo "")
+  # Lowercase am/pm
+  FIRST_TIME=$(echo "$FIRST_TIME" | tr 'A-Z' 'a-z')
+else
+  FIRST_TIME=""
+fi
 
 # -----------------------------------------------------------------------------
 # 5. WEEKLY AGGREGATION (rolling 7 days, merged intervals)
@@ -498,7 +512,9 @@ fi
 # "Today" uses merged intervals — concurrent sessions don't inflate the number.
 # "Wall" is the naive sum — compare with Today to verify merge is working.
 # "Active" is sum of API time — how long Claude was actually thinking.
-printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | All Sessions: ${session_count} today | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Wall: $(printf '%02dh %02dm' "$wall_h" "$wall_m") | Active: ${ACTIVE_FMT} | Week: $(printf '%02dh %02dm' "$wh" "$wm")"
+SINCE_STR=""
+[ -n "$FIRST_TIME" ] && SINCE_STR=" (since ${FIRST_TIME})"
+printf '%b\n' "${BAR_COLOR}${BAR}${RESET} ${PCT:-0}% ctx${CTX_WARN} | All Sessions: ${session_count} today${SINCE_STR} | Today: $(printf '%02dh %02dm' "$dh" "$dm") | Wall: $(printf '%02dh %02dm' "$wall_h" "$wall_m") | Active: ${ACTIVE_FMT} | Week: $(printf '%02dh %02dm' "$wh" "$wm")"
 
 # --- Line 3: Billing ---
 # Subscription users: rate limit percentages + reset countdown.
