@@ -428,6 +428,16 @@
     margin-top: 8px;
   }
   .annot-left { margin-bottom: 32px; }
+  .reference-box {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 24px 18px;
+    margin: 0 0 40px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  }
+  .reference-box .annotated-line:first-of-type { padding-top: 22px; }
+  .reference-box .annotated-line + .annotated-line { margin-top: 8px; }
   .annot-left-label {
     font-family: var(--mono);
     font-size: 11px;
@@ -857,6 +867,7 @@
 
     <div class="annotated-wrap">
       <p class="annot-left-label">The layout</p>
+      <div class="reference-box">
       <!-- LINE 1 -->
       <div class="annotated-line">
         <span class="sep">[</span><span class="field" data-n="1"><span class="marker">1</span><span class="accent-c">Opus 4.7 (1M context)</span></span><span class="sep">]</span>
@@ -889,6 +900,7 @@
         <span class="sep">|</span>
         <span class="field" data-n="13"><span class="marker">13</span><span class="yellow">Limit (7day): 0% used, resets in 1d 23h</span></span>
       </div>
+      </div><!-- /.reference-box -->
 
       <!-- ANNOTATIONS -->
       <div class="annot-group">
