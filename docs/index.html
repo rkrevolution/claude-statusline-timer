@@ -20,7 +20,7 @@
     --border: #1f2630;
     --text: #e6edf3;
     --text-dim: #9aa4b2;
-    --text-faint: #6b7380;
+    --text-faint: #8b93a0;
     --accent: #d97757;
     --accent-hover: #e88a6d;
     --green: #7ee787;
@@ -32,6 +32,37 @@
   }
 
   * { box-sizing: border-box; }
+
+  /* ---------- Accessibility ---------- */
+  .skip-link {
+    position: absolute;
+    top: -40px;
+    left: 8px;
+    background: var(--accent);
+    color: #1a1a1a;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    z-index: 100;
+    text-decoration: none;
+    transition: top 0.15s ease;
+  }
+  .skip-link:focus {
+    top: 8px;
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 
   html, body {
     margin: 0;
@@ -201,6 +232,41 @@
     margin: 0 0 14px;
     font-weight: 700;
   }
+  .section-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+  .annot-group { margin-bottom: 28px; }
+  .annot-group:last-child { margin-bottom: 0; }
+  .annot-group-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .annot-group-label::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .annot-group-label.row-1 { color: var(--text-dim); }
+  .annot-group-label.row-1::before { background: var(--accent); }
+  .annot-group-label.row-2 { color: var(--text-dim); }
+  .annot-group-label.row-2::before { background: var(--green); }
+  .annot-group-label.row-3 { color: var(--text-dim); }
+  .annot-group-label.row-3::before { background: var(--yellow); }
   section h2 .accent { color: var(--accent); }
   section .lead {
     font-size: 18px;
@@ -346,6 +412,16 @@
     padding: 40px 32px;
     margin-top: 8px;
   }
+  .annot-left { margin-bottom: 32px; }
+  .annot-left-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 12px;
+  }
+  .annot-right { margin-top: 12px; }
   .annotated-line {
     font-family: var(--mono);
     font-size: 14px;
@@ -353,6 +429,8 @@
     white-space: nowrap;
     overflow-x: auto;
     padding: 22px 0 8px;
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 40px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 40px), transparent 100%);
   }
   .annotated-line .field {
     position: relative;
@@ -382,6 +460,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+  /* Color-code markers + legend numbers by status-line row */
+  .annotated-line .field:is([data-n="6"], [data-n="7"], [data-n="8"], [data-n="9"], [data-n="10"], [data-n="11"]) .marker,
+  .annot-item:is([data-n="6"], [data-n="7"], [data-n="8"], [data-n="9"], [data-n="10"], [data-n="11"]) .num {
+    background: var(--green);
+    color: #0b0d10;
+  }
+  .annotated-line .field:is([data-n="12"], [data-n="13"]) .marker,
+  .annot-item:is([data-n="12"], [data-n="13"]) .num {
+    background: var(--yellow);
+    color: #0b0d10;
   }
   .annotated-line .sep {
     color: var(--text-faint);
@@ -648,6 +737,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main">Skip to content</a>
+
 <nav>
   <div class="container">
     <div class="logo"><span class="dot">▌</span> Claude Code Status Timer</div>
@@ -655,6 +746,7 @@
   </div>
 </nav>
 
+<main id="main">
 <!-- HERO -->
 <header class="hero">
   <div class="container">
@@ -769,6 +861,8 @@
       </div>
 
       <!-- ANNOTATIONS -->
+      <div class="annot-group">
+        <div class="annot-group-label row-1">Line 1 · Session info</div>
       <div class="annot-list">
         <div class="annot-item" data-n="1">
           <div class="num">1</div>
@@ -805,6 +899,11 @@
             <div class="desc">Of that session duration, this is the slice Claude actually spent thinking and generating. The gap between the two is <em>you</em> reading, typing, and thinking.</div>
           </div>
         </div>
+      </div>
+      </div>
+      <div class="annot-group">
+        <div class="annot-group-label row-2">Line 2 · Your day's usage</div>
+      <div class="annot-list">
         <div class="annot-item" data-n="6">
           <div class="num">6</div>
           <div class="txt">
@@ -847,6 +946,11 @@
             <div class="desc">Rolling 7-day total, merged the same way as Today. Early warning system for the weekly rate limit.</div>
           </div>
         </div>
+      </div>
+      </div>
+      <div class="annot-group">
+        <div class="annot-group-label row-3">Line 3 · Rate limits</div>
+      <div class="annot-list">
         <div class="annot-item" data-n="12">
           <div class="num">12</div>
           <div class="txt">
@@ -861,6 +965,7 @@
             <div class="desc">Weekly budget. Matters for sustained heavy usage over multiple days. API users see a <code>Cost: $X.XX</code> field here instead.</div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   </div>
@@ -1006,6 +1111,8 @@ chmod +x ~/.claude/ultimate-timer.sh</pre>
   </div>
 </section>
 
+</main>
+
 <footer>
   <div class="container">
     <div class="footer-main">
@@ -1018,7 +1125,7 @@ chmod +x ~/.claude/ultimate-timer.sh</pre>
 </footer>
 
 <script>
-  // Link status line fields to their annotation entries on hover.
+  // Link status line fields to their annotation entries on hover or keyboard focus.
   (function () {
     const fields = document.querySelectorAll('.annotated-line .field');
     const items = document.querySelectorAll('.annot-item');
@@ -1028,8 +1135,17 @@ chmod +x ~/.claude/ultimate-timer.sh</pre>
       const n = el.dataset.n;
       el.addEventListener('mouseenter', () => highlight(n, true));
       el.addEventListener('mouseleave', () => highlight(n, false));
+      el.addEventListener('focus', () => highlight(n, true));
+      el.addEventListener('blur', () => highlight(n, false));
     };
-    fields.forEach(attach);
+    // Make status-line fields keyboard focusable and labeled for screen readers.
+    fields.forEach((el) => {
+      el.setAttribute('tabindex', '0');
+      el.setAttribute('role', 'button');
+      const item = document.querySelector(`.annot-item[data-n="${el.dataset.n}"] .name`);
+      if (item) el.setAttribute('aria-label', item.textContent.trim());
+      attach(el);
+    });
     items.forEach(attach);
   })();
 </script>
