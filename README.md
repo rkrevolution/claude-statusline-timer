@@ -2,6 +2,8 @@
 
 A multi-line status bar for [Claude Code](https://code.claude.com) that tracks real time spent using Claude — with accurate overlap handling, daily/weekly totals, and billing info across all terminals and sessions.
 
+**🌐 Landing page:** [rkrevolution.github.io/claude-statusline-timer](https://rkrevolution.github.io/claude-statusline-timer/) — annotated walkthrough of every field and how the overlap merge works.
+
 ---
 
 ## Quick Start (2 minutes)
@@ -39,22 +41,24 @@ claude
 
 ## What It Looks Like
 
-**Subscription users** (Pro/Max) — two overlapping sessions correctly deduplicated:
+**Subscription users** (Pro/Max) — three overlapping sessions correctly deduplicated, rate limits on their own line:
 ```
-[Opus] 📁 my-project | 🌿 main | Session: 01h 23m 45s (API: 12m 34s)
-████░░░░░░ 42% ctx | #2 | Today: 02h 00m | Wall: 03h 00m | Active: 25m | Week: 12h 34m | Limit (5hr): 68% used, resets in 1h 51m | Limit (7day): 4% used
+[Opus 4.7 (1M context)] 📁 my-project | 🌿 main | This Session: 00h 47m 23s (API: 08m 15s)
+███░░░░░░░ 28% ctx | All Sessions: 3 today (since 9:42am) | Today: 02h 15m | Wall: 03h 02m | Active: 24m | Week: 14h 38m
+Limit (5hr): 47% used, resets in 2h 38m | Limit (7day): 12% used, resets in 4d 12h
 ```
 
 **No overlapping sessions** — Today and Wall match:
 ```
-[Opus] 📁 counter | 🌿 main | Session: 00h 45m 00s (API: 10m 00s)
-██░░░░░░░░ 18% ctx | #2 | Today: 01h 30m | Wall: 01h 30m | Active: 15m | Week: 08h 00m | Limit (5hr): 30% used, resets in 3h 0m | Limit (7day): 8% used
+[Opus] 📁 counter | 🌿 main | This Session: 00h 45m 00s (API: 10m 00s)
+██░░░░░░░░ 18% ctx | All Sessions: 1 today (since 10:15am) | Today: 00h 45m | Wall: 00h 45m | Active: 10m | Week: 08h 00m
+Limit (5hr): 30% used, resets in 3h 00m | Limit (7day): 8% used, resets in 5d 2h
 ```
 
 **API users** see daily cost instead of rate limits:
 ```
-[Sonnet] 📁 api-project | Session: 00h 30m 00s (API: 08m 15s)
-███████░░░ 75% ctx | #1 | Today: 00h 30m | Wall: 00h 30m | Active: 8m | Week: 02h 15m | Cost: $2.47
+[Sonnet] 📁 api-project | This Session: 00h 30m 00s (API: 08m 15s)
+███████░░░ 75% ctx | All Sessions: 1 today (since 2:00pm) | Today: 00h 30m | Wall: 00h 30m | Active: 8m | Week: 02h 15m | Cost: $2.47
 ```
 
 ---
@@ -115,31 +119,37 @@ Active = 25 minutes
 
 ## What Each Field Means
 
-### Line 1 — Session Info
+### Line 1 — This Session
 
 | Field | What it tells you |
 |---|---|
-| `[Opus]` | Which Claude model you're using |
+| `[Opus 4.7 (1M context)]` | Which Claude model you're using |
 | 📁 `my-project` | Your current working directory |
 | 🌿 `main` | Your git branch (cached per-repo, refreshes every 5s) |
-| `Session: 01h 23m 45s` | How long this specific Claude Code window has been open |
-| `(API: 12m 34s)` | How long Claude spent actively processing in this session |
+| `This Session: 00h 47m 23s` | How long this specific Claude Code window has been open |
+| `(API: 08m 15s)` | How long Claude spent actively processing in this session |
 
-### Line 2 — Daily Usage & Limits
+### Line 2 — All Sessions (today)
 
 | Field | What it tells you |
 |---|---|
-| `████░░░░░░ 42% ctx` | How full your context window is. Green = fine, yellow = filling, red = almost full. |
+| `███░░░░░░░ 28% ctx` | How full your context window is. Green = fine, yellow = filling, red = almost full. |
 | `!! >200k` | Warning flag when your tokens exceed 200k. Only appears when triggered. |
-| `#3` | How many Claude Code sessions you've opened today |
-| `Today: 02h 00m` | Real time you spent with Claude today. Overlapping sessions deduplicated. Idle tail trimmed. |
-| `Wall: 03h 00m` | Raw sum of all session durations. Compare with Today to see if deduplication happened. |
-| `Active: 25m` | Total time Claude was actually thinking/responding across all sessions today. |
-| `Week: 12h 34m` | Rolling 7-day total of real time with Claude (merged intervals). |
-| `Limit (5hr): 68% used` | How much of your 5-hour rate limit you've consumed. Watch this — it's what throttles you. |
-| `resets in 1h 51m` | When your 5-hour window opens back up. Plan breaks around this. |
-| `Limit (7day): 4% used` | How much of your weekly rate limit you've consumed. |
-| `Cost: $2.47` | Daily cost total. Only shown for API users (not subscription). |
+| `All Sessions: 3 today (since 9:42am)` | How many Claude Code windows you've opened today, and when the first one started |
+| `Today: 02h 15m` | Real time you spent with Claude today. Overlapping sessions deduplicated. Idle tail trimmed. |
+| `Wall: 03h 02m` | Raw sum of all session durations. Compare with Today to see if deduplication happened. |
+| `Active: 24m` | Total time Claude was actually thinking/responding across all sessions today. |
+| `Week: 14h 38m` | Rolling 7-day total of real time with Claude (merged intervals). |
+
+### Line 3 — Rate Limits (Subscription Users) or Cost (API Users)
+
+| Field | What it tells you |
+|---|---|
+| `Limit (5hr): 47% used` | How much of your 5-hour rate limit you've consumed. Watch this — it's what throttles you. |
+| `resets in 2h 38m` | When your 5-hour window opens back up. Plan breaks around this. |
+| `Limit (7day): 12% used` | How much of your weekly rate limit you've consumed. |
+| `resets in 4d 12h` | When your 7-day window rolls forward. |
+| `Cost: $2.47` | Daily cost total. Shown inline on Line 2 for API users (no rate limit line). |
 
 ### Rate Limits (Subscription Users Only)
 
