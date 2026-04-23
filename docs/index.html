@@ -142,7 +142,7 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     margin: 48px auto;
-    max-width: 860px;
+    max-width: 100%;
     overflow: hidden;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   }
@@ -170,6 +170,7 @@
     line-height: 1.7;
     color: var(--text-dim);
     overflow-x: auto;
+    text-align: left;
   }
   .terminal-body .user { color: var(--green); }
   .terminal-body .path { color: var(--blue); }
@@ -396,8 +397,11 @@
   .annot-list {
     margin-top: 32px;
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px 20px;
+  }
+  @media (max-width: 720px) {
+    .annot-list { grid-template-columns: 1fr; }
   }
   .annot-item {
     display: grid;
