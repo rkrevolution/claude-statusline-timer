@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b0d10"/>
+      <stop offset="100%" stop-color="#15191e"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="20" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Accent top bar -->
+  <rect x="0" y="0" width="1200" height="4" fill="#d97757"/>
+
+  <!-- Small label top-left -->
+  <g font-family="ui-monospace, Menlo, monospace" font-size="14" fill="#6b7380">
+    <text x="60" y="60">▌ Claude Code Status Timer</text>
+  </g>
+
+  <!-- Headline -->
+  <g font-family="-apple-system, Helvetica, Arial, sans-serif" font-weight="700" fill="#e6edf3">
+    <text x="60" y="180" font-size="64" letter-spacing="-1.5">Know how much time</text>
+    <text x="60" y="258" font-size="64" letter-spacing="-1.5">you're spending in <tspan fill="#d97757">Claude</tspan>.</text>
+  </g>
+
+  <!-- Subhead -->
+  <g font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="22" fill="#9aa4b2">
+    <text x="60" y="314">A status bar for Claude Code that keeps tabs on your time</text>
+    <text x="60" y="346">across every session. Built for parallel agent workflows.</text>
+  </g>
+
+  <!-- Terminal mock -->
+  <g transform="translate(60, 400)" filter="url(#shadow)">
+    <rect x="0" y="0" width="1080" height="170" rx="10" fill="#0d1117" stroke="#1f2630" stroke-width="1"/>
+
+    <!-- Terminal title bar -->
+    <rect x="0" y="0" width="1080" height="30" rx="10" fill="#161b22"/>
+    <rect x="0" y="15" width="1080" height="15" fill="#161b22"/>
+    <circle cx="18" cy="15" r="6" fill="#ff5f56"/>
+    <circle cx="38" cy="15" r="6" fill="#ffbd2e"/>
+    <circle cx="58" cy="15" r="6" fill="#27c93f"/>
+
+    <!-- Status line content -->
+    <g font-family="ui-monospace, Menlo, monospace" font-size="15">
+      <text x="22" y="64" fill="#e6edf3">
+        <tspan fill="#6b7380">[</tspan><tspan fill="#d97757">Opus 4.7 (1M context)</tspan><tspan fill="#6b7380">]</tspan> 📁 claude-statusline-timer <tspan fill="#6b7380">|</tspan> 🌿 main <tspan fill="#6b7380">|</tspan> This Session: 00h 47m 23s <tspan fill="#6b7380">(API: 08m 15s)</tspan>
+      </text>
+      <text x="22" y="98" fill="#e6edf3">
+        <tspan fill="#7ee787">███</tspan><tspan fill="#6b7380">░░░░░░░</tspan> 28% ctx <tspan fill="#6b7380">|</tspan> All Sessions: 3 today <tspan fill="#6b7380">|</tspan> Today: 02h 15m <tspan fill="#6b7380">|</tspan> Wall: 03h 02m <tspan fill="#6b7380">|</tspan> Active: 24m <tspan fill="#6b7380">|</tspan> Week: 14h 38m
+      </text>
+      <text x="22" y="132" fill="#f9c74f">
+        Limit (5hr): 47% used, resets in 2h 38m <tspan fill="#6b7380">|</tspan> <tspan fill="#f9c74f">Limit (7day): 12% used, resets in 4d 12h</tspan>
+      </text>
+    </g>
+  </g>
+
+  <!-- Bottom-right attribution -->
+  <g font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#6b7380">
+    <text x="1140" y="600" text-anchor="end">rkrevolution/claude-statusline-timer</text>
+  </g>
+</svg>
