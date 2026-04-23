@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Claude Code Status Timer: Keeping Tabs on Your Claude Code Usage</title>
+<meta name="description" content="A drop-in status bar for Claude Code that helps you keep tabs on your time across every session, with a live rate-limit countdown and weekly totals. Built on Claude Code's official status line." />
+<meta property="og:title" content="Claude Code Status Timer: Keeping Tabs on Your Claude Code Usage" />
+<meta property="og:description" content="Keep tabs on your time across every Claude Code session. Live rate-limit countdown. Weekly totals. Runs locally, zero API tokens consumed." />
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-elev: #111418;
+    --bg-card: #15191e;
+    --border: #1f2630;
+    --text: #e6edf3;
+    --text-dim: #9aa4b2;
+    --text-faint: #6b7380;
+    --accent: #d97757;
+    --accent-hover: #e88a6d;
+    --green: #7ee787;
+    --yellow: #f9c74f;
+    --red: #f27171;
+    --blue: #79c0ff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ---------- Nav ---------- */
+  nav {
+    padding: 20px 0;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: rgba(11, 13, 16, 0.85);
+    backdrop-filter: blur(10px);
+    z-index: 10;
+  }
+  nav .container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .logo .dot { color: var(--accent); }
+  nav a.github {
+    font-size: 14px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+  }
+  nav a.github:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
+    text-decoration: none;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: 96px 0 64px;
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: 56px;
+    line-height: 1.1;
+    margin: 0 0 20px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  .hero h1 .accent { color: var(--accent); }
+  .hero .tagline {
+    font-size: 20px;
+    color: var(--text-dim);
+    max-width: 640px;
+    margin: 0 auto 36px;
+  }
+  .hero .cta-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-block;
+    padding: 12px 22px;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 15px;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #1a1a1a;
+  }
+  .btn-primary:hover { background: var(--accent-hover); text-decoration: none; }
+  .btn-secondary {
+    border-color: var(--border);
+    color: var(--text);
+  }
+  .btn-secondary:hover { border-color: var(--text-dim); text-decoration: none; }
+
+  /* ---------- Terminal preview ---------- */
+  .terminal {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin: 48px auto;
+    max-width: 860px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+  .terminal-bar {
+    background: #161b22;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .terminal-bar .dot-b {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #4a525e;
+  }
+  .terminal-bar .dot-b.r { background: #ff5f56; }
+  .terminal-bar .dot-b.y { background: #ffbd2e; }
+  .terminal-bar .dot-b.g { background: #27c93f; }
+  .terminal-body {
+    padding: 20px 22px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    overflow-x: auto;
+  }
+  .terminal-body .user { color: var(--green); }
+  .terminal-body .path { color: var(--blue); }
+  .terminal-body .prompt { color: var(--accent); }
+  .terminal-body .statusline {
+    border-top: 1px dashed var(--border);
+    margin-top: 16px;
+    padding-top: 16px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .terminal-body .statusline .label { color: var(--text-faint); }
+  .terminal-body .statusline .green { color: var(--green); }
+  .terminal-body .statusline .yellow { color: var(--yellow); }
+  .terminal-body .statusline .red { color: var(--red); }
+  .terminal-body .statusline .blue { color: var(--blue); }
+  .terminal-body .statusline .accent { color: var(--accent); }
+  .terminal-body .statusline .sep { color: var(--text-faint); margin: 0 4px; }
+
+  /* ---------- Sections ---------- */
+  section {
+    padding: 72px 0;
+    border-top: 1px solid var(--border);
+  }
+  section h2 {
+    font-size: 34px;
+    letter-spacing: -0.01em;
+    margin: 0 0 14px;
+    font-weight: 700;
+  }
+  section h2 .accent { color: var(--accent); }
+  section .lead {
+    font-size: 18px;
+    color: var(--text-dim);
+    max-width: 680px;
+    margin: 0 0 40px;
+  }
+
+  /* ---------- Origin card ---------- */
+  .origin-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 36px;
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--text-dim);
+  }
+  .origin-card p {
+    margin: 0 0 18px;
+  }
+  .origin-card p:last-child { margin-bottom: 0; }
+  .origin-list {
+    margin: 0 0 22px;
+    padding-left: 24px;
+    color: var(--text);
+  }
+  .origin-list li {
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .origin-list li::marker {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .origin-sig {
+    font-size: 15px;
+    color: var(--text-faint);
+    font-style: italic;
+    margin-top: 8px;
+  }
+  .origin-sig a {
+    color: var(--text-dim);
+    font-style: normal;
+  }
+  .origin-sig a:hover { color: var(--accent); }
+
+  /* ---------- JTBD ---------- */
+  .jtbd-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 24px 28px;
+    margin-bottom: 32px;
+  }
+  .jtbd-card .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .jtbd-card p {
+    font-size: 18px;
+    color: var(--text);
+    margin: 0;
+    line-height: 1.55;
+  }
+  .jtbd-card p em {
+    font-style: normal;
+    color: var(--text-dim);
+  }
+
+  .pain-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-top: 32px;
+  }
+  .pain {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .pain .icon {
+    font-family: var(--mono);
+    color: var(--red);
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .pain h4 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .pain p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* ---------- Value props grid ---------- */
+  .props-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 8px;
+  }
+  .prop {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px;
+  }
+  .prop .num {
+    font-family: var(--mono);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .prop h3 {
+    margin: 0 0 10px;
+    font-size: 19px;
+    font-weight: 600;
+  }
+  .prop p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 15px;
+  }
+
+  /* ---------- Annotated status line ---------- */
+  .annotated-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px 32px;
+    margin-top: 8px;
+  }
+  .annotated-line {
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 2;
+    white-space: nowrap;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+  .annotated-line .field {
+    position: relative;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .annotated-line .field:hover,
+  .annotated-line .field.active {
+    background: rgba(217, 119, 87, 0.15);
+    outline: 1px solid rgba(217, 119, 87, 0.4);
+  }
+  .annotated-line .field .marker {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: #1a1a1a;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .annotated-line .sep {
+    color: var(--text-faint);
+    margin: 0 2px;
+    user-select: none;
+  }
+  .annotated-line .green { color: var(--green); }
+  .annotated-line .yellow { color: var(--yellow); }
+  .annotated-line .blue { color: var(--blue); }
+  .annotated-line .accent-c { color: var(--accent); }
+  .annotated-line .dim-c { color: var(--text-faint); }
+
+  .annot-list {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .annot-item {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 14px;
+    align-items: start;
+    padding: 14px 16px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    transition: all 0.15s ease;
+  }
+  .annot-item:hover, .annot-item.active {
+    background: var(--bg-elev);
+    border-color: var(--border);
+  }
+  .annot-item .num {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #1a1a1a;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 2px;
+  }
+  .annot-item .txt .name {
+    font-family: var(--mono);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .annot-item .txt .desc {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-top: 2px;
+    line-height: 1.5;
+  }
+
+  /* ---------- How it works flow ---------- */
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+    margin-top: 8px;
+  }
+  .flow-stage {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+    position: relative;
+  }
+  .flow-stage .stage-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .flow-stage h4 {
+    margin: 0 0 10px;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .flow-stage p {
+    margin: 0 0 12px;
+    color: var(--text-dim);
+    font-size: 14.5px;
+  }
+  .flow-stage pre {
+    margin: 8px 0 0;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text);
+    overflow-x: auto;
+    line-height: 1.55;
+  }
+  .flow-stage pre .key { color: var(--blue); }
+  .flow-stage pre .string { color: var(--green); }
+  .flow-stage pre .number { color: var(--yellow); }
+  .flow-stage pre .comment { color: var(--text-faint); }
+  .flow-arrow {
+    text-align: center;
+    font-family: var(--mono);
+    color: var(--accent);
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  /* ---------- Three dimensions ---------- */
+  .dim-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+    font-size: 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .dim-table th, .dim-table td {
+    padding: 14px 18px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .dim-table tr:last-child td { border-bottom: none; }
+  .dim-table th {
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .dim-table td.dim-name {
+    font-family: var(--mono);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .dim-table td strong { color: var(--text); }
+
+  /* ---------- Requirements ---------- */
+  .reqs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--blue);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 40px;
+  }
+  .reqs-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 12px;
+  }
+  .reqs-list {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .reqs-list strong { color: var(--text); font-weight: 600; }
+  .reqs-list code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg-elev);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  /* ---------- How to use ---------- */
+  .steps {
+    counter-reset: step;
+    margin-top: 8px;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: 20px;
+    margin-bottom: 28px;
+    align-items: start;
+  }
+  .step .num {
+    counter-increment: step;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .step .num::before { content: counter(step); }
+  .step h3 {
+    margin: 6px 0 10px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .step p {
+    margin: 0 0 12px;
+    color: var(--text-dim);
+  }
+  .step pre {
+    margin: 0;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    overflow-x: auto;
+    line-height: 1.55;
+  }
+  .step pre .comment { color: var(--text-faint); }
+  .step pre .string { color: var(--green); }
+  .step pre .key { color: var(--blue); }
+
+  /* ---------- Footer ---------- */
+  footer {
+    padding: 40px 0 60px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 14px;
+  }
+  footer a { color: var(--text-dim); }
+  footer .footer-main { margin-bottom: 8px; }
+  footer .footer-sub { font-size: 13px; color: var(--text-faint); }
+  footer a.author {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  footer a.author:hover { color: var(--accent-hover); }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 640px) {
+    .hero { padding: 56px 0 32px; }
+    .hero h1 { font-size: 36px; }
+    .hero .tagline { font-size: 17px; }
+    section { padding: 48px 0; }
+    section h2 { font-size: 26px; }
+    .terminal-body { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <div class="logo"><span class="dot">▌</span> Claude Code Status Timer</div>
+    <a class="github" href="https://github.com/rkrevolution/claude-statusline-timer">View on GitHub →</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <h1>Know how much time you're<br/>spending in <span class="accent">Claude</span>.</h1>
+    <p class="tagline">We're all spending more time on Claude Code. But where do the hours actually go? This is a status bar that helps you keep tabs on your time across every session, so you always know where your day stands before you hit a rate limit or burn through your hours.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#install">Install in 2 minutes</a>
+      <a class="btn btn-secondary" href="https://github.com/rkrevolution/claude-statusline-timer">View source</a>
+    </div>
+    <p style="margin: 24px 0 0; font-size: 13px; color: var(--text-faint);">Runs locally · Zero API tokens consumed · macOS &amp; Linux · Built on <a href="https://code.claude.com/docs/en/statusline" style="color: var(--text-dim);">Claude Code's official status line</a></p>
+  </div>
+
+  <!-- Terminal preview -->
+  <div class="container">
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="dot-b r"></span><span class="dot-b y"></span><span class="dot-b g"></span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="user">you</span>@<span class="path">~/claude-statusline-timer</span> <span class="prompt">$</span> claude</div>
+        <div style="color: var(--text-faint);">...working with Claude...</div>
+        <div class="statusline">[<span class="accent">Opus 4.7 (1M context)</span>] 📁 claude-statusline-timer <span class="sep">|</span> 🌿 main <span class="sep">|</span> This Session: 00h 47m 23s <span class="label">(API: 08m 15s)</span></div>
+        <div class="statusline"><span class="green">███</span><span style="color: var(--text-faint);">░░░░░░░</span> 28% ctx <span class="sep">|</span> All Sessions: 3 today <span class="label">(since 9:42am)</span> <span class="sep">|</span> <span class="label">Today:</span> 02h 15m <span class="sep">|</span> <span class="label">Wall:</span> 03h 02m <span class="sep">|</span> <span class="label">Active:</span> 24m <span class="sep">|</span> <span class="label">Week:</span> 14h 38m</div>
+        <div class="statusline"><span class="yellow">Limit (5hr): 47% used, resets in 2h 38m</span> <span class="sep">|</span> <span class="yellow">Limit (7day): 12% used, resets in 4d 12h</span></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- WHY I MADE THIS -->
+<section id="origin">
+  <div class="container">
+    <h2>Why I <span class="accent">made this</span></h2>
+    <div class="origin-card">
+      <p>I use Claude Code every day. I'd get heads down on a problem, and hours would fly by before I came up for air. Sometimes that meant hitting a rate limit mid-task. Sometimes it meant looking up and realizing the day was already gone.</p>
+      <p>I wanted a <strong>time buddy right there in the terminal where I work</strong>. Something quietly keeping tabs on every session across the day, so I always knew where I stood before I burned through my hours.</p>
+      <p>So I wrote one.</p>
+      <p class="origin-sig">Rob <a href="https://robkleiman.net">(rkrevolution)</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEMS IT FIXES -->
+<section id="problems">
+  <div class="container">
+    <h2>Four problems <span class="accent">it fixes</span></h2>
+    <p class="lead">The moments that made me build this. Probably the reason you're here too.</p>
+
+    <div class="pain-list">
+      <div class="pain">
+        <div class="icon">✕ problem</div>
+        <h4>Rate limits arrive without warning</h4>
+        <p>You're in flow, then Claude refuses to respond. You don't know when it'll come back. Your momentum is gone.</p>
+      </div>
+      <div class="pain">
+        <div class="icon">✕ problem</div>
+        <h4>Parallel agents, muddled totals</h4>
+        <p>Running Claude across git worktrees, spawning subagents, or just juggling two terminals? Normal timers count the overlap twice. You can't tell if you've burned one hour or three.</p>
+      </div>
+      <div class="pain">
+        <div class="icon">✕ problem</div>
+        <h4>"How long have I been here?"</h4>
+        <p>A simple question with no honest answer. Walking away for an hour shouldn't count the same as actively coding, but most timers say it does.</p>
+      </div>
+      <div class="pain">
+        <div class="icon">✕ problem</div>
+        <h4>No view of the whole week</h4>
+        <p>The 7-day rate limit is real, but nothing warns you about it until you're already bumping into it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ANNOTATED BREAKDOWN -->
+<section id="breakdown">
+  <div class="container">
+    <h2>Every field, <span class="accent">explained</span></h2>
+    <p class="lead">This is exactly what you see in your terminal. Hover a highlighted field, or the numbered entry below, to see what it tells you.</p>
+
+    <div class="annotated-wrap">
+      <!-- LINE 1 -->
+      <div class="annotated-line">
+        <span class="sep">[</span><span class="field" data-n="1"><span class="marker">1</span><span class="accent-c">Opus 4.7 (1M context)</span></span><span class="sep">]</span>
+        📁 <span class="field" data-n="2"><span class="marker">2</span>claude-statusline-timer</span>
+        <span class="sep">|</span>
+        🌿 <span class="field" data-n="3"><span class="marker">3</span>main</span>
+        <span class="sep">|</span>
+        <span class="field" data-n="4"><span class="marker">4</span>This Session: 00h 01m 13s</span>
+        <span class="field" data-n="5"><span class="marker">5</span><span class="dim-c">(API: 00m 30s)</span></span>
+      </div>
+
+      <!-- LINE 2 -->
+      <div class="annotated-line" style="margin-top: 12px;">
+        <span class="field" data-n="6"><span class="marker">6</span><span class="green">░░░░░░░░░░</span> 3% ctx</span>
+        <span class="sep">|</span>
+        <span class="field" data-n="7"><span class="marker">7</span>All Sessions: 1 today <span class="dim-c">(since 2:37pm)</span></span>
+        <span class="sep">|</span>
+        <span class="field" data-n="8"><span class="marker">8</span>Today: 00h 01m</span>
+        <span class="sep">|</span>
+        <span class="field" data-n="9"><span class="marker">9</span>Wall: 00h 01m</span>
+        <span class="sep">|</span>
+        <span class="field" data-n="10"><span class="marker">10</span>Active: 0m</span>
+        <span class="sep">|</span>
+        <span class="field" data-n="11"><span class="marker">11</span>Week: 05h 16m</span>
+      </div>
+
+      <!-- LINE 3 -->
+      <div class="annotated-line" style="margin-top: 12px;">
+        <span class="field" data-n="12"><span class="marker">12</span><span class="yellow">Limit (5hr): 0% used, resets in 4h 51m</span></span>
+        <span class="sep">|</span>
+        <span class="field" data-n="13"><span class="marker">13</span><span class="yellow">Limit (7day): 0% used, resets in 1d 23h</span></span>
+      </div>
+
+      <!-- ANNOTATIONS -->
+      <div class="annot-list">
+        <div class="annot-item" data-n="1">
+          <div class="num">1</div>
+          <div class="txt">
+            <div class="name">Model</div>
+            <div class="desc">Which Claude model this session is running. Useful when you juggle Opus for hard problems and Sonnet/Haiku for cheap grunt work, so you always know which one just cost you.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="2">
+          <div class="num">2</div>
+          <div class="txt">
+            <div class="name">📁 Working directory</div>
+            <div class="desc">The folder Claude Code is pointed at. Critical when you have three terminals open in three repos.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="3">
+          <div class="num">3</div>
+          <div class="txt">
+            <div class="name">🌿 Git branch</div>
+            <div class="desc">Current branch, cached per repo so it stays fast even in large repositories.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="4">
+          <div class="num">4</div>
+          <div class="txt">
+            <div class="name">This Session</div>
+            <div class="desc">Wall-clock time since you opened this specific Claude Code window. Starts ticking on your first message.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="5">
+          <div class="num">5</div>
+          <div class="txt">
+            <div class="name">API time in this session</div>
+            <div class="desc">Of that session duration, this is the slice Claude actually spent thinking and generating. The gap between the two is <em>you</em> reading, typing, and thinking.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="6">
+          <div class="num">6</div>
+          <div class="txt">
+            <div class="name">Context window usage</div>
+            <div class="desc">How full the current context is. Green when you have room, yellow when filling, red when you're about to need <code>/compact</code>.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="7">
+          <div class="num">7</div>
+          <div class="txt">
+            <div class="name">All Sessions today</div>
+            <div class="desc">How many Claude Code windows you've opened today, and when the first one started. A quick pulse of how distributed your day has been.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="8">
+          <div class="num">8</div>
+          <div class="txt">
+            <div class="name">Today <span class="dim-c">(the real total)</span></div>
+            <div class="desc"><strong>The honest answer</strong> to "how long was I with Claude today." Parallel sessions are combined into one. Time after you walked away doesn't count, because the clock only advances when Claude responds.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="9">
+          <div class="num">9</div>
+          <div class="txt">
+            <div class="name">Wall <span class="dim-c">(raw total)</span></div>
+            <div class="desc">Raw sum of every session's duration, with no merging. If Wall is bigger than Today, it means two or more sessions overlapped and the merge worked. A sanity check.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="10">
+          <div class="num">10</div>
+          <div class="txt">
+            <div class="name">Active <span class="dim-c">(API time)</span></div>
+            <div class="desc">Sum of time Claude actually spent processing across every session today. The rest was you typing or thinking.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="11">
+          <div class="num">11</div>
+          <div class="txt">
+            <div class="name">Week</div>
+            <div class="desc">Rolling 7-day total, merged the same way as Today. Early warning system for the weekly rate limit.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="12">
+          <div class="num">12</div>
+          <div class="txt">
+            <div class="name">Limit (5hr) <span class="dim-c">(subscription only)</span></div>
+            <div class="desc"><strong>The one to watch.</strong> Your short-term budget. When it hits ~100%, Claude rate-limits you. The reset timer tells you exactly when you can pick back up.</div>
+          </div>
+        </div>
+        <div class="annot-item" data-n="13">
+          <div class="num">13</div>
+          <div class="txt">
+            <div class="name">Limit (7day) <span class="dim-c">(subscription only)</span></div>
+            <div class="desc">Weekly budget. Matters for sustained heavy usage over multiple days. API users see a <code>Cost: $X.XX</code> field here instead.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- THE LOGIC BEHIND IT -->
+<section id="logic">
+  <div class="container">
+    <h2>The logic <span class="accent">behind it</span></h2>
+    <p class="lead">No server. No telemetry. No API tokens consumed. Just four ideas working together, built on Claude Code's official <a href="https://code.claude.com/docs/en/statusline">status line</a>.</p>
+
+    <div class="flow">
+      <div class="flow-stage">
+        <div class="stage-label">Idea 1</div>
+        <h4>Claude Code already sends everything you need</h4>
+        <p>After every message, Claude Code runs your status line script and pipes in a JSON blob with the session ID, current model, context usage, cost, and your rate limits. That's all first-party. The script just reads what's there and formats it into something you can use at a glance.</p>
+      </div>
+
+      <div class="flow-stage">
+        <div class="stage-label">Idea 2</div>
+        <h4>One timestamp per session, and "end" keeps moving</h4>
+        <p>Every Claude Code window is a session. The script records the moment it started, then pushes its end time forward to <em>now</em> every time Claude responds. If you walk away for an hour, the clock stops advancing. That's why idle time gets trimmed out of your daily total.</p>
+      </div>
+
+      <div class="flow-stage">
+        <div class="stage-label">Idea 3</div>
+        <h4>Overlapping sessions get merged into one honest interval</h4>
+        <p>Run Claude across git worktrees, fan out parallel subagents, or just have two terminals open? Their time ranges get combined into a single merged interval. One hour of overlap counts as one hour, not two. That's what makes "Today" an honest number instead of an inflated one.</p>
+      </div>
+
+      <div class="flow-stage">
+        <div class="stage-label">Idea 4</div>
+        <h4>Everything lives on your machine</h4>
+        <p>The whole system is one bash script reading from stdin and writing to stdout. Session data is saved to a local JSON file per day and auto-cleaned after 30 days. No network calls, no accounts, no tokens consumed. Per the <a href="https://code.claude.com/docs/en/statusline">official docs</a>: "The status line runs locally and does not consume API tokens."</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- THREE DIMENSIONS -->
+<section id="dimensions">
+  <div class="container">
+    <h2>The key insight: <span class="accent">"how long?"</span> isn't one number</h2>
+    <p class="lead">Most timers pick one definition and hide the rest. This one shows three, because each answers a different question, and together they tell the truth.</p>
+
+    <table class="dim-table">
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th>What it answers</th>
+          <th>Same scenario: 2 concurrent sessions, 1–3pm</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="dim-name">Today</td>
+          <td><strong>"How long was I really with Claude?"</strong> Parallel sessions combined into one. Time after you walked away doesn't count.</td>
+          <td><strong>2h</strong> (the honest answer)</td>
+        </tr>
+        <tr>
+          <td class="dim-name">Wall</td>
+          <td><strong>"Sum of every session."</strong> The raw total, before merging. If Wall is bigger than Today, parallel sessions overlapped.</td>
+          <td><strong>3h</strong> (what a normal timer would show)</td>
+        </tr>
+        <tr>
+          <td class="dim-name">Active</td>
+          <td><strong>"How long was Claude actually thinking?"</strong> Just the time Claude spent responding, not you typing.</td>
+          <td><strong>25m</strong> (the rest was you)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- HOW TO USE -->
+<section id="install">
+  <div class="container">
+    <h2>Install in <span class="accent">2 minutes</span></h2>
+    <p class="lead">One shell script, one settings tweak, done. Everything runs locally on your machine.</p>
+
+    <div class="reqs">
+      <div class="reqs-title">Before you start, you'll need</div>
+      <ul class="reqs-list">
+        <li><strong>Claude Code</strong> installed and working (<a href="https://code.claude.com">claude.com/code</a>)</li>
+        <li><strong>macOS or Linux</strong> (the script is bash)</li>
+        <li><strong>jq</strong> (see step 1 below to install it)</li>
+        <li><strong>A Claude.ai Pro/Max subscription</strong> to see rate-limit fields. API users see a daily <code>Cost: $X.XX</code> field instead.</li>
+      </ul>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Install jq</h3>
+          <p>Used to parse the JSON Claude Code pipes in.</p>
+<pre><span class="comment"># macOS</span>
+brew install jq
+
+<span class="comment"># Linux</span>
+sudo apt install jq</pre>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Download the script</h3>
+          <p>Drop it in your Claude Code config directory and make it executable.</p>
+<pre>curl -o ~/.claude/ultimate-timer.sh \
+  https://raw.githubusercontent.com/rkrevolution/claude-statusline-timer/main/ultimate-timer.sh
+chmod +x ~/.claude/ultimate-timer.sh</pre>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Wire it into Claude Code</h3>
+          <p>Edit <code>~/.claude/settings.json</code> and add the <code>statusLine</code> key alongside your existing settings.</p>
+<pre>{
+  <span class="key">"statusLine"</span>: {
+    <span class="key">"type"</span>: <span class="string">"command"</span>,
+    <span class="key">"command"</span>: <span class="string">"bash ~/.claude/ultimate-timer.sh"</span>
+  }
+}</pre>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Launch Claude Code</h3>
+          <p>The status bar appears at the bottom after your first message. That's it.</p>
+<pre>claude</pre>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 40px; text-align: center;">
+      <a class="btn btn-primary" href="https://github.com/rkrevolution/claude-statusline-timer#readme">Full docs on GitHub →</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-main">
+      Built by <a href="https://robkleiman.net" class="author">rkrevolution</a> ·
+      <a href="https://github.com/rkrevolution/claude-statusline-timer">Source on GitHub</a> ·
+      Made for <a href="https://code.claude.com">Claude Code</a>
+    </div>
+    <div class="footer-sub">Runs locally · Zero API tokens consumed · Open source</div>
+  </div>
+</footer>
+
+<script>
+  // Link status line fields to their annotation entries on hover.
+  (function () {
+    const fields = document.querySelectorAll('.annotated-line .field');
+    const items = document.querySelectorAll('.annot-item');
+    const byNum = (n) => document.querySelectorAll(`[data-n="${n}"]`);
+    const highlight = (n, on) => byNum(n).forEach(el => el.classList.toggle('active', on));
+    const attach = (el) => {
+      const n = el.dataset.n;
+      el.addEventListener('mouseenter', () => highlight(n, true));
+      el.addEventListener('mouseleave', () => highlight(n, false));
+    };
+    fields.forEach(attach);
+    items.forEach(attach);
+  })();
+</script>
+</body>
+</html>
