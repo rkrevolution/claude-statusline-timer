@@ -430,11 +430,25 @@
   .annot-left { margin-bottom: 32px; }
   .annot-left-label {
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--text-faint);
-    margin: 0 0 12px;
+    color: var(--text-dim);
+    margin: 0 0 20px;
+    display: inline-block;
+    padding: 8px 14px;
+    background: #0d1117;
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+  }
+  .annot-left-label::before { content: '$ '; color: var(--accent); }
+  .annot-left-label::after { content: '_'; color: var(--green); margin-left: 4px; animation: blink 1s step-end infinite; }
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .annot-left-label::after { animation: none; }
   }
   .annot-right { margin-top: 12px; }
   .annotated-line {
